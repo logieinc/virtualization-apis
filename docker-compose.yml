@@ -51,6 +51,18 @@ services:
     volumes:
       - redis_virtual_data:/data
 
+  mongo:
+    image: mongo:7
+    container_name: mongo-virtual
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=mongo
+      - MONGO_INITDB_ROOT_PASSWORD=mongo
+      - MONGO_INITDB_DATABASE=virtual
+    volumes:
+      - mongo_virtual_data:/data/db
+
   nginx:
     image: nginx:alpine
     container_name: nginx-virtualization
@@ -65,3 +77,4 @@ services:
 volumes:
   postgres_virtual_data:
   redis_virtual_data:
+  mongo_virtual_data:

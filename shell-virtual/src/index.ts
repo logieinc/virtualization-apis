@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
+import { registerMongoCommand } from './commands/mongo';
 import { registerOpensearchCommand } from './commands/opensearch';
 
 const cwdEnvPath = path.resolve(process.cwd(), '.env');
@@ -32,6 +33,7 @@ program.showHelpAfterError('\nRun the command again with --help to see available
 program.hook('postAction', () => console.log());
 
 registerOpensearchCommand(program);
+registerMongoCommand(program);
 
 program.parseAsync(process.argv).catch(error => {
   console.error('Unexpected error:', error);

@@ -37,6 +37,8 @@ cp .env.example .env
 - `OPENSEARCH_URL` (por defecto `http://localhost:9200`)
 - `OPENSEARCH_USER` (opcional)
 - `OPENSEARCH_PASSWORD` (opcional)
+- `MONGO_URL` (por defecto `mongodb://localhost:27017`)
+- `MONGO_DB` (por defecto `virtual`)
 
 ### Comandos principales
 
@@ -44,6 +46,55 @@ Una vez enlazado (`npm link`), usá el alias corto:
 
 ```bash
 virt <comando> [opciones]
+```
+
+### Comandos MongoDB
+
+```bash
+virt mongo <comando> [opciones]
+```
+
+#### 1. Listar colecciones
+
+```bash
+virt mongo list-collections
+```
+
+#### 2. Insertar documentos
+
+```bash
+virt mongo insert party resources/model/party/data.yaml
+```
+
+#### 3. Buscar documentos
+
+```bash
+virt mongo find party
+virt mongo find party --filter resources/model/party/filter.yaml --limit 5
+virt mongo find party --filter resources/model/party/filter.yaml --table --fields id,name,type
+```
+
+#### 4. Eliminar documentos
+
+```bash
+virt mongo delete party 64e9c9e4f9c2c6a1b2c3d4e5
+virt mongo delete party --filter resources/model/party/filter.yaml
+virt mongo delete party --filter resources/model/party/filter.yaml --yes
+```
+
+#### 5. Exportar documentos
+
+```bash
+virt mongo export party --format json
+virt mongo export party --format yaml --output resources/model/party/data.yaml
+```
+
+---
+
+### Comandos OpenSearch
+
+```bash
+virt opensearch <comando> [opciones]
 ```
 
 #### 1. Cargar datos en OpenSearch (bulk)
