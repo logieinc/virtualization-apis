@@ -1,0 +1,32 @@
+api:
+  name: Virtual Wallet
+  basePath: /api-wallet/api/v1
+  description: Mock declarativo para consultar balances y crear topups.
+
+routes:
+  - operationId: getBalance
+    method: GET
+    path: /balances/{userId}
+    response:
+      status: 200
+      headers:
+        x-mock-source: api-virtual
+      bodyTemplate:
+        userId: "{{params.userId}}"
+        available: 1520.75
+        currency: USD
+        lastUpdate: "{{meta.now}}"
+        resourcesHint: "{{resources.postgres.connectionString}}"
+
+  - operationId: createTopup
+    method: POST
+    path: /topups
+    response:
+      status: 201
+      bodyTemplate:
+        id: "tp_{{meta.randomId}}"
+        status: accepted
+        amount: "{{body.amount}}"
+        currency: "{{body.currency}}"
+        createdAt: "{{meta.now}}"
+        echoUser: "{{body.userId}}"

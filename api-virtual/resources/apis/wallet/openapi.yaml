@@ -1,0 +1,80 @@
+openapi: 3.1.0
+info:
+  title: Virtual Wallet API
+  version: "1.0.0"
+  description: API virtual para consultas básicas de balance y topups.
+servers:
+  - url: /api-wallet/api/v1
+paths:
+  /balances/{userId}:
+    get:
+      operationId: getBalance
+      summary: Obtener balance de la billetera
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Balance actual
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Balance"
+  /topups:
+    post:
+      operationId: createTopup
+      summary: Registrar un topup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopupRequest"
+      responses:
+        "201":
+          description: Topup registrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopupResponse"
+components:
+  schemas:
+    Balance:
+      type: object
+      properties:
+        userId:
+          type: string
+        available:
+          type: number
+        currency:
+          type: string
+        lastUpdate:
+          type: string
+          format: date-time
+    TopupRequest:
+      type: object
+      required: [userId, amount, currency]
+      properties:
+        userId:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+    TopupResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        createdAt:
+          type: string
+          format: date-time

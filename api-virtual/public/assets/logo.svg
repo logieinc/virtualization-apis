@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="60" viewBox="0 0 240 60" role="img" aria-label="Virtual API Logo">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="10" width="90" height="40" rx="12" fill="url(#grad)" opacity="0.9"/>
+  <circle cx="35" cy="30" r="8" fill="#0f172a"/>
+  <circle cx="65" cy="30" r="8" fill="#0f172a" opacity="0.75"/>
+  <text x="110" y="37" font-family="Arial, sans-serif" font-size="20" fill="#e2e8f0" font-weight="700">
+    api-virtual
+  </text>
+</svg>

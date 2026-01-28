@@ -1,0 +1,13 @@
+resources:
+  postgres:
+    type: postgresql
+    connectionString: postgres://postgres:postgres@localhost:5433/affiliations
+    description: Pool de lectura/escritura para datos de afiliaciones.
+  opensearch:
+    type: opensearch
+    endpoint: http://localhost:9200
+    description: Clúster simulado para búsquedas y analytics.
+  cache:
+    type: redis
+    endpoint: redis://localhost:6379
+    description: Cache para lookups rápidos en ambientes virtuales.

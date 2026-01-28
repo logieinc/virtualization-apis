@@ -1,0 +1,35 @@
+api:
+  name: Virtual Payments
+  basePath: /api-payments/api/v1
+  description: Mock declarativo para iniciar y consultar pagos.
+
+routes:
+  - operationId: createPayment
+    method: POST
+    path: /payments
+    response:
+      status: 202
+      headers:
+        x-virtual-resource: opensearch
+      bodyTemplate:
+        id: "pay_{{meta.randomId}}"
+        status: accepted
+        amount: "{{body.amount}}"
+        currency: "{{body.currency}}"
+        channel: "{{body.channel}}"
+        acceptedAt: "{{meta.now}}"
+        reference: "{{body.reference}}"
+        storedIn: "{{resources.opensearch.endpoint}}"
+
+  - operationId: getPayment
+    method: GET
+    path: /payments/{paymentId}
+    response:
+      status: 200
+      bodyTemplate:
+        id: "{{params.paymentId}}"
+        status: processing
+        channel: checkout
+        amount: 99.99
+        currency: USD
+        updatedAt: "{{meta.now}}"

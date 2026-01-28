@@ -1,0 +1,16 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copiamos dependencias del proyecto
+COPY tsconfig.base.json ./
+COPY api-virtual/package.json api-virtual/package-lock.json* api-virtual/tsconfig.json ./api-virtual/
+
+WORKDIR /app/api-virtual
+RUN npm install
+
+COPY api-virtual ./
+WORKDIR /app/api-virtual
+
+ENV PORT=4000
+CMD ["npm", "run", "dev"]

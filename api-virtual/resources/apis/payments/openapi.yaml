@@ -1,0 +1,88 @@
+openapi: 3.1.0
+info:
+  title: Virtual Payments API
+  version: "1.0.0"
+  description: API virtual para crear y consultar pagos.
+servers:
+  - url: /api-payments/api/v1
+paths:
+  /payments:
+    post:
+      operationId: createPayment
+      summary: Crear un pago
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentRequest"
+      responses:
+        "202":
+          description: Pago aceptado para procesamiento
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentAccepted"
+  /payments/{paymentId}:
+    get:
+      operationId: getPayment
+      summary: Consultar un pago
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Estado del pago
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentStatus"
+components:
+  schemas:
+    PaymentRequest:
+      type: object
+      required: [amount, currency, channel]
+      properties:
+        amount:
+          type: number
+        currency:
+          type: string
+        channel:
+          type: string
+        reference:
+          type: string
+    PaymentAccepted:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        channel:
+          type: string
+        acceptedAt:
+          type: string
+          format: date-time
+    PaymentStatus:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        channel:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time

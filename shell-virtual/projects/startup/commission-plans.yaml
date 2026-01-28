@@ -1,0 +1,23 @@
+name: sample-commission-plans
+description: Example commission plans for QA
+plans:
+  - name: Revenue Share LATAM
+    baseType: BET
+    combineMode: EXCLUSIVE
+    status: ACTIVE
+    levels:
+      - level: 0
+        percentage: 0.12
+      - level: 1
+        percentage: 0.08
+      - level: 2
+        percentage: 0.04
+  - name: VIP Boost EU
+    baseType: BET
+    combineMode: STACKABLE
+    status: ACTIVE
+    levels:
+      - level: 0
+        percentage: 0.15
+      - level: 1
+        percentage: 0.1

@@ -1,0 +1,55 @@
+api:
+  name: Virtual Data Lake
+  basePath: /api-data-lake/api/v1
+  description: Mock declarativo para descubrir datasets y lanzar queries simples.
+
+routes:
+  - operationId: listDatasets
+    method: GET
+    path: /datasets
+    response:
+      status: 200
+      bodyTemplate:
+        total: 2
+        items:
+          - id: dl-sales
+            name: Ventas históricas
+            source: s3://datalake/sales
+            description: Ventas diarias consolidadas.
+            rows: 124523
+          - id: dl-users
+            name: Usuarios
+            source: s3://datalake/users
+            description: Catálogo de usuarios activos e inactivos.
+            rows: 98541
+
+  - operationId: getDataset
+    method: GET
+    path: /datasets/{datasetId}
+    response:
+      status: 200
+      bodyTemplate:
+        id: "{{params.datasetId}}"
+        name: "Dataset {{params.datasetId}}"
+        source: "s3://datalake/{{params.datasetId}}"
+        description: "Dataset mockeado para {{params.datasetId}}"
+        rows: 50000
+
+  - operationId: queryDataset
+    method: POST
+    path: /datasets/{datasetId}/query
+    response:
+      status: 200
+      headers:
+        x-data-source: "{{resources.opensearch.endpoint}}"
+      bodyTemplate:
+        datasetId: "{{params.datasetId}}"
+        tookMs: 42
+        total: 2
+        rows:
+          - id: "{{meta.randomId}}"
+            value: 123.45
+            where: "{{body.where}}"
+          - id: "{{meta.randomId}}"
+            value: 678.9
+            select: "{{body.select}}"

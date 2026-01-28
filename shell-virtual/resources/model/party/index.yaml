@@ -1,0 +1,60 @@
+mappings:
+  properties:
+    chain:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    createdAt:
+      type: date
+    externalReference:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    id:
+      type: long
+    identifier:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    metadata:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    name:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    parentId:
+      type: long
+    status:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    subtype:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    type:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    updatedAt:
+      type: date
+    visible:
+      type: boolean
