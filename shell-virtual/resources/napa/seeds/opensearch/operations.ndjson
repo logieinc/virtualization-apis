@@ -1,0 +1,6 @@
+{"index":{"_index":"operations","_id":"os-op-1"}}
+{"operationId":"os-op-1","operationType":"DEPOSIT","status":"COMPLETED","amount":5000,"currency":"USD","accountId":"acct-100","chain":"opensearch-demo","origin":"opensearch","createdAt":"2024-06-01T12:00:00Z","updatedAt":"2024-06-01T12:00:00Z","metadata":{"note":"seed deposit"}}
+{"index":{"_index":"operations","_id":"os-op-2"}}
+{"operationId":"os-op-2","operationType":"WITHDRAWAL","status":"CREATED","amount":2500,"currency":"USD","accountId":"acct-200","chain":"opensearch-demo","origin":"opensearch","createdAt":"2024-06-02T09:30:00Z","updatedAt":"2024-06-02T09:30:00Z","metadata":{"note":"seed withdrawal"}}
+{"index":{"_index":"operations","_id":"os-op-3"}}
+{"operationId":"os-op-3","operationType":"TRANSFER","status":"PENDING","amount":3000,"currency":"EUR","accountId":"acct-300","chain":"opensearch-demo","origin":"opensearch","createdAt":"2024-06-03T16:45:00Z","updatedAt":"2024-06-04T10:15:00Z","metadata":{"note":"seed transfer","reviewed":false}}

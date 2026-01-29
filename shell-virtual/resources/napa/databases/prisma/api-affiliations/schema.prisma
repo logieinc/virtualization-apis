@@ -1,0 +1,195 @@
+/// Prisma Client - genera el cliente tipado para acceder a la base de datos.
+generator client {
+  provider = "prisma-client-js"
+}
+
+/// Datasource principal conectado a PostgreSQL mediante la variable de entorno `DATABASE_URL`.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Tipos posibles de entidades dentro del grafo de afiliaciones.
+enum PartyType {
+  AFFILIATE
+  PLAYER
+  ORGANIZATION
+}
+
+/// Estados semánticos reutilizables para indicar la vigencia de un registro.
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+  SUSPENDED
+  ARCHIVED
+}
+
+/// Estados que describen la ejecución de una simulación.
+enum SimulationStatus {
+  DRAFT
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// Catálogo de monedas soportadas por el sistema (producción y simulaciones).
+model Currency {
+  id               String   @id /// Identificador ISO o personalizado (ej: "USD", "ARS").
+  name             String
+  symbol           String
+  decimalPrecision Float    @default(0.01)
+  type             String   @default("fiat") /// fiat, crypto, fantasy, etc.
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  parties           Party[]
+  simulationRuns    SimulationRun[]
+  simulationInputs  SimulationInput[]
+  simulationResults SimulationResult[]
+}
+
+/// Entidad base para afiliados, jugadores y organizaciones.
+model Party {
+  id                 String       @id @default(uuid())
+  shortId            String       @unique @default(cuid()) /// Identificador legible (ej: "AFF-7Q2vFZpT3mA")
+  name               String
+  alias              String?      @unique
+  aliases            String[]     @default([])
+  type               PartyType
+  orgId              String?
+  metadata           Json? /// Información de contacto (nombre, apellido, teléfono, dirección, email, username, identificadores, etc.).
+  utm                Json? /// Datos de marketing digital o campaña (utm_source, utm_medium, utm_campaign, utm_term, utm_content)
+  qrIdentifier       String?      @unique /// Identificador único del QR o elemento físico asociado al afiliador o jugador
+  status             RecordStatus @default(ACTIVE)
+  externalIdentifier String?      @unique /// Identificador externo (wallet, CRM, partner, etc.).
+  balance            Decimal      @default(0) @db.Decimal(18, 2)
+  currencyId         String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  currency            Currency?                 @relation(fields: [currencyId], references: [id], onDelete: SetNull)
+  ancestors             PartyClosure[]              @relation("ancestor")
+  descendants           PartyClosure[]              @relation("descendant")
+  commissionAssignments PartyCommissionAssignment[]
+
+  @@index([alias])
+  @@index([status])
+  @@index([externalIdentifier])
+  @@index([qrIdentifier])
+  @@index([currencyId])
+}
+
+/// Tabla de clausura para representar rutas jerárquicas (path enumeration).
+model PartyClosure {
+  ancestorId   String
+  descendantId String
+  depth        Int
+  createdAt    DateTime @default(now())
+
+  ancestor   Party @relation("ancestor", fields: [ancestorId], references: [id], onDelete: Cascade)
+  descendant Party @relation("descendant", fields: [descendantId], references: [id], onDelete: Cascade)
+
+  @@id([ancestorId, descendantId])
+  @@index([descendantId, depth])
+  @@index([ancestorId, depth])
+}
+
+/// Plan de comisiones parametrizable con niveles y vigencia.
+model CommissionPlan {
+  id            String       @id @default(uuid())
+  shortId       String       @unique @default(cuid()) /// Identificador legible (ej: "PLAN-hs7wqTzL4r")
+  name          String
+  status        RecordStatus @default(ACTIVE)
+  baseType      String       @default("BET")
+  combineMode   String       @default("EXCLUSIVE")
+  levels        Json /// Ejemplo: [{ level: 0, percentage: 0.1 }, ...]
+  effectiveFrom DateTime     @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  assignments PartyCommissionAssignment[]
+  simulations SimulationRun[]
+
+  @@index([status])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+/// Asignaciones históricas de planes de comisión para cada Party.
+model PartyCommissionAssignment {
+  id               String       @id @default(uuid())
+  shortId          String       @unique @default(cuid()) /// Identificador legible (ej: "ASSG-abc123")
+  partyId          String
+  commissionPlanId String
+  assignedAt       DateTime     @default(now())
+  unassignedAt     DateTime?
+  status           RecordStatus @default(ACTIVE)
+
+  party          Party          @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  commissionPlan CommissionPlan @relation(fields: [commissionPlanId], references: [id], onDelete: Cascade)
+
+  @@index([partyId, status])
+  @@index([commissionPlanId])
+}
+
+/// Ejecución de un set de simulaciones de comisiones.
+model SimulationRun {
+  id          String           @id @default(uuid())
+  shortId     String           @unique @default(cuid()) /// Identificador legible (ej: "RUN-kF8n2DqS3p")
+  name        String
+  description String?
+  createdBy   String?
+  status      SimulationStatus @default(DRAFT)
+  planId      String?
+  currencyId  String?
+  context     Json?
+  utm         Json?           /// Contexto general de marketing o afiliación aplicado a toda la simulación
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  plan     CommissionPlan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
+  currency Currency?          @relation(fields: [currencyId], references: [id], onDelete: SetNull)
+  inputs   SimulationInput[]
+  results  SimulationResult[]
+}
+
+/// Entrada individual a simular (evento económico).
+model SimulationInput {
+  id                 String   @id @default(uuid())
+  shortId            String   @unique @default(cuid()) /// Identificador legible (ej: "INP-xyz987")
+  runId              String
+  playerId           String
+  amount             Decimal  @db.Decimal(18, 6)
+  occurredAt         DateTime
+  currencyId         String?
+  context            Json?
+  utm                Json? /// Información de marketing: { source, medium, campaign, term, content }
+  externalIdentifier String? /// Referencia externa de la operación (wallet, CRM, partner, etc.).
+  createdAt          DateTime @default(now())
+
+  run      SimulationRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  currency Currency?          @relation(fields: [currencyId], references: [id], onDelete: SetNull)
+  results  SimulationResult[]
+}
+
+/// Resultado de comisión calculado por beneficiario y nivel.
+model SimulationResult {
+  id            String       @id @default(uuid())
+  shortId       String       @unique @default(cuid()) /// Identificador legible (ej: "RES-123abc")
+  runId         String
+  inputId       String
+  beneficiaryId String
+  level         Int
+  percentage    Decimal      @db.Decimal(9, 6)
+  commission    Decimal      @db.Decimal(18, 6)
+  currencyId    String?
+  status        RecordStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now())
+
+  run      SimulationRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  input    SimulationInput @relation(fields: [inputId], references: [id], onDelete: Cascade)
+  currency Currency?       @relation(fields: [currencyId], references: [id], onDelete: SetNull)
+}

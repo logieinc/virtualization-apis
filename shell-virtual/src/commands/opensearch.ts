@@ -6,9 +6,19 @@ import { stdin as input, stdout as output } from 'node:process';
 import { Command } from 'commander';
 import YAML from 'yaml';
 
+import { resolveEnvironment } from '../config';
+
 const DEFAULT_OPENSEARCH_URL = process.env.OPENSEARCH_URL || 'http://localhost:9200';
 const DEFAULT_OPENSEARCH_USER = process.env.OPENSEARCH_USER;
 const DEFAULT_OPENSEARCH_PASSWORD = process.env.OPENSEARCH_PASSWORD;
+const RESOURCES_ROOT = path.resolve(__dirname, '..', '..', 'resources');
+const DEFAULT_OPERATIONS_BULK = path.join(
+  RESOURCES_ROOT,
+  'napa',
+  'seeds',
+  'opensearch',
+  'operations.ndjson'
+);
 
 type OpensearchBaseOptions = {
   endpoint: string;
@@ -21,6 +31,15 @@ type OpensearchLoadOptions = OpensearchBaseOptions & {
 
 type OpensearchCreateIndexOptions = OpensearchBaseOptions & {
   body?: string;
+};
+
+type OpensearchSeedOperationsOptions = OpensearchBaseOptions & {
+  index?: string;
+  bulkFile?: string;
+  waitSeconds?: number;
+  reset?: boolean;
+  dynamicIds?: boolean;
+  dynamicTimestamps?: boolean;
 };
 
 type OpensearchInsertOptions = OpensearchBaseOptions & {
@@ -77,15 +96,24 @@ function normalizeBulkEndpoint(endpoint: string): string {
   return trimmed.endsWith('/_bulk') ? trimmed : `${trimmed}/_bulk`;
 }
 
+function resolveEndpoint(value?: string): string {
+  const config = resolveEnvironment();
+  return value ?? config.env?.opensearch?.url ?? DEFAULT_OPENSEARCH_URL;
+}
+
 function buildAuthConfig() {
-  if (!DEFAULT_OPENSEARCH_USER && !DEFAULT_OPENSEARCH_PASSWORD) {
+  const config = resolveEnvironment();
+  const username = config.env?.opensearch?.user ?? DEFAULT_OPENSEARCH_USER;
+  const password = config.env?.opensearch?.password ?? DEFAULT_OPENSEARCH_PASSWORD;
+
+  if (!username && !password) {
     return {};
   }
 
   return {
     auth: {
-      username: DEFAULT_OPENSEARCH_USER ?? '',
-      password: DEFAULT_OPENSEARCH_PASSWORD ?? ''
+      username: username ?? '',
+      password: password ?? ''
     }
   };
 }
@@ -110,6 +138,133 @@ function buildBulkPayload(
   }
 
   return { payload: `${lines.join('\n')}\n`, count: list.length };
+}
+
+function isBulkMeta(doc: unknown): doc is Record<string, Record<string, unknown>> {
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    return false;
+  }
+  const keys = Object.keys(doc as Record<string, unknown>);
+  if (keys.length !== 1) {
+    return false;
+  }
+  const key = keys[0];
+  return key === 'index' || key === 'create' || key === 'update' || key === 'delete';
+}
+
+function normalizeBulkPayload(
+  raw: string,
+  options: { dynamicIds?: boolean; dynamicTimestamps?: boolean; indexOverride?: string }
+): string {
+  const lines = raw.split('\n');
+  const output: string[] = [];
+  let payloadIndex = 0;
+  const baseDate = new Date();
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue;
+    }
+    try {
+      const doc = JSON.parse(line) as unknown;
+      if (isBulkMeta(doc)) {
+        const action = Object.keys(doc)[0];
+        const meta = { ...(doc as Record<string, any>)[action] };
+        if (options.dynamicIds && meta && typeof meta === 'object') {
+          delete meta._id;
+        }
+        if (options.indexOverride && meta && typeof meta === 'object') {
+          meta._index = options.indexOverride;
+        }
+        output.push(JSON.stringify({ [action]: meta }));
+      } else {
+        if (options.dynamicTimestamps && doc && typeof doc === 'object') {
+          const current = new Date(baseDate.getTime() + payloadIndex * 1000);
+          const timestamp = current.toISOString().replace(/\.\d{3}Z$/, 'Z');
+          (doc as Record<string, unknown>).createdAt = timestamp;
+          (doc as Record<string, unknown>).updatedAt = timestamp;
+          payloadIndex += 1;
+        }
+        output.push(JSON.stringify(doc));
+      }
+    } catch (error) {
+      output.push(line);
+    }
+  }
+
+  return `${output.join('\n')}\n`;
+}
+
+async function waitForOpenSearch(endpoint: string, seconds: number): Promise<void> {
+  const start = Date.now();
+  const timeoutMs = seconds * 1000;
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await axios.get(endpoint, buildAuthConfig());
+      return;
+    } catch (error) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+
+  throw new Error(`OpenSearch did not respond within ${seconds}s at ${endpoint}`);
+}
+
+async function ensureOperationsIndex(
+  endpoint: string,
+  index: string,
+  reset: boolean
+): Promise<void> {
+  const base = endpoint.replace(/\/$/, '');
+  const indexUrl = `${base}/${encodeURIComponent(index)}`;
+
+  let exists = true;
+  try {
+    await axios.head(indexUrl, buildAuthConfig());
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      exists = false;
+    } else {
+      throw error;
+    }
+  }
+
+  if (reset && exists) {
+    await axios.delete(indexUrl, buildAuthConfig());
+    exists = false;
+  }
+
+  if (exists) {
+    return;
+  }
+
+  const body = {
+    settings: {
+      number_of_shards: 1,
+      number_of_replicas: 0
+    },
+    mappings: {
+      properties: {
+        operationId: { type: 'keyword' },
+        operationType: { type: 'keyword' },
+        status: { type: 'keyword' },
+        amount: { type: 'long' },
+        currency: { type: 'keyword' },
+        accountId: { type: 'keyword' },
+        chain: { type: 'keyword' },
+        origin: { type: 'keyword' },
+        metadata: { type: 'object', enabled: true },
+        createdAt: { type: 'date' },
+        updatedAt: { type: 'date' }
+      }
+    }
+  };
+
+  await axios.put(indexUrl, body, {
+    headers: { 'content-type': 'application/json' },
+    ...buildAuthConfig()
+  });
 }
 
 async function loadStructuredFile(filePath: string): Promise<unknown> {
@@ -172,7 +327,7 @@ export function registerOpensearchCommand(program: Command): void {
           return;
         }
 
-        const endpoint = normalizeBulkEndpoint(options.endpoint);
+        const endpoint = normalizeBulkEndpoint(resolveEndpoint(options.endpoint));
         const response = await axios.post(endpoint, payload, {
           headers: { 'content-type': 'application/x-ndjson' },
           ...buildAuthConfig()
@@ -194,7 +349,7 @@ export function registerOpensearchCommand(program: Command): void {
     .option('-b, --body <file>', 'JSON/YAML file with index settings/mappings')
     .action(async (name: string, options: OpensearchCreateIndexOptions) => {
       try {
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const url = `${base}/${encodeURIComponent(name)}`;
         const body = options.body ? await loadStructuredFile(options.body) : {};
 
@@ -213,6 +368,58 @@ export function registerOpensearchCommand(program: Command): void {
     });
 
   opensearch
+    .command('seed-operations')
+    .description('Seed the operations index with demo data.')
+    .option('-e, --endpoint <url>', 'OpenSearch base URL', DEFAULT_OPENSEARCH_URL)
+    .option('-i, --index <name>', 'Target index name', 'operations')
+    .option(
+      '-f, --bulk-file <path>',
+      'NDJSON bulk file to load',
+      DEFAULT_OPERATIONS_BULK
+    )
+    .option('--wait-seconds <number>', 'Seconds to wait for OpenSearch', value => Number(value), 120)
+    .option('--reset', 'Delete the index before loading', false)
+    .option('--dynamic-ids', 'Remove _id so OpenSearch generates new ids', false)
+    .option('--dynamic-timestamps', 'Overwrite createdAt/updatedAt with current timestamps', false)
+    .action(async (options: OpensearchSeedOperationsOptions) => {
+      try {
+        const endpoint = resolveEndpoint(options.endpoint);
+        const index = options.index ?? 'operations';
+        const bulkFile = options.bulkFile ?? DEFAULT_OPERATIONS_BULK;
+        const waitSeconds = Number(options.waitSeconds ?? 120);
+        const reset = options.reset ?? false;
+        const dynamicIds = options.dynamicIds ?? false;
+        const dynamicTimestamps = options.dynamicTimestamps ?? false;
+
+        await waitForOpenSearch(endpoint, waitSeconds);
+        await ensureOperationsIndex(endpoint, index, reset);
+
+        const raw = await fs.readFile(
+          path.isAbsolute(bulkFile) ? bulkFile : path.resolve(process.cwd(), bulkFile),
+          'utf-8'
+        );
+        const payload = normalizeBulkPayload(raw, {
+          dynamicIds,
+          dynamicTimestamps,
+          indexOverride: index
+        });
+
+        const bulkEndpoint = normalizeBulkEndpoint(endpoint);
+        const response = await axios.post(bulkEndpoint, payload, {
+          headers: { 'content-type': 'application/x-ndjson' },
+          ...buildAuthConfig()
+        });
+
+        console.info(`Seeded OpenSearch index "${index}".`);
+        console.table(response.data);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Error while seeding OpenSearch operations: ${message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  opensearch
     .command('insert <index> <file>')
     .description('Insert a single document into an OpenSearch index.')
     .option('-e, --endpoint <url>', 'OpenSearch base URL', DEFAULT_OPENSEARCH_URL)
@@ -224,7 +431,7 @@ export function registerOpensearchCommand(program: Command): void {
           throw new Error('Document must be a JSON/YAML object.');
         }
 
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const docPath = options.id ? `/_doc/${encodeURIComponent(options.id)}` : '/_doc';
         const url = `${base}/${encodeURIComponent(index)}${docPath}`;
         const method = options.id ? axios.put : axios.post;
@@ -258,7 +465,7 @@ export function registerOpensearchCommand(program: Command): void {
     )
     .action(async (name: string, options: OpensearchDescribeIndexOptions) => {
       try {
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const indexName = encodeURIComponent(name);
         const fetchMappings = options.mappings || (!options.mappings && !options.settings);
         const fetchSettings = options.settings || (!options.mappings && !options.settings);
@@ -332,7 +539,7 @@ export function registerOpensearchCommand(program: Command): void {
     )
     .action(async (options: OpensearchListIndicesOptions) => {
       try {
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const response = await axios.get(`${base}/_cat/indices?format=json`, buildAuthConfig());
         if (options.format === 'json') {
           console.info(JSON.stringify(response.data, null, 2));
@@ -362,7 +569,7 @@ export function registerOpensearchCommand(program: Command): void {
     )
     .action(async (index: string, options: OpensearchSearchOptions) => {
       try {
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const url = `${base}/${encodeURIComponent(index)}/_search`;
 
         let body: Record<string, unknown>;
@@ -428,7 +635,7 @@ export function registerOpensearchCommand(program: Command): void {
             return;
           }
         }
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const url = `${base}/${encodeURIComponent(index)}/_doc/${encodeURIComponent(id)}`;
         const response = await axios.delete(url, buildAuthConfig());
         console.info(`Deleted document "${id}" from "${index}".`);
@@ -456,7 +663,7 @@ export function registerOpensearchCommand(program: Command): void {
             return;
           }
         }
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const url = `${base}/${encodeURIComponent(index)}/_delete_by_query`;
         const response = await axios.post(
           url,
@@ -490,7 +697,7 @@ export function registerOpensearchCommand(program: Command): void {
     .option('-o, --output <file>', 'Write output to a file instead of stdout')
     .action(async (name: string, options: OpensearchExportOptions) => {
       try {
-        const base = options.endpoint.replace(/\/$/, '');
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
         const indexName = encodeURIComponent(name);
         const fetchMappings = options.mappings || (!options.mappings && !options.settings);
         const fetchSettings = options.settings || (!options.mappings && !options.settings);

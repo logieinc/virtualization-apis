@@ -1,0 +1,187 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "linux-musl", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int          @id @default(autoincrement())
+  identifier      String       @unique @default(cuid())
+  name            String
+  username        String?      @unique
+  email           String       @unique
+  password        String?
+  partyId         String
+  createdById     Int?
+  updatedById     Int?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  status          Status       @default(CREATED)
+  metadata        Json?
+  algorithm       String?
+  canLogin        Boolean      @default(true)
+  apiKeysCreated  ApiKey[]     @relation("apiKeysCreated")
+  apiKeys         ApiKey[]     @relation("UserId")
+  createdFeatures Feature[]    @relation("FeatureCreatedBy")
+  updatedFeatures Feature[]    @relation("FeatureUpdatedBy")
+  createdPolicies Policy[]     @relation("PolicyCreatedBy")
+  updatedPolicies Policy[]     @relation("PolicyUpdatedBy")
+  createdRoles    Role[]       @relation("RoleCreatedBy")
+  updatedRoles    Role[]       @relation("RoleUpdatedBy")
+  createdBy       User?        @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers    User[]       @relation("UserCreatedBy")
+  updatedBy       User?        @relation("UserUpdatedBy", fields: [updatedById], references: [id])
+  updatedUsers    User[]       @relation("UserUpdatedBy")
+  policies        UserPolicy[]
+  roles           Role[]       @relation("UserRoles")
+  aliasKeys   Alias[]  @relation("AliasKeys")
+}
+
+model ApiKey {
+  id          Int      @id @default(autoincrement())
+  identifier  String   @default(cuid())
+  key         String   @unique
+  userId      Int
+  createdById Int?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  status      Status   @default(ACTIVE)
+  createdBy   User?    @relation("apiKeysCreated", fields: [createdById], references: [id])
+  user        User     @relation("UserId", fields: [userId], references: [id])
+}
+
+model Role {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  createdById Int?
+  updatedById Int?
+  status      Status       @default(ACTIVE)
+  createdBy   User?        @relation("RoleCreatedBy", fields: [createdById], references: [id])
+  updatedBy   User?        @relation("RoleUpdatedBy", fields: [updatedById], references: [id])
+  policies    RolePolicy[]
+  features    Feature[]    @relation("RoleFeatures")
+  users       User[]       @relation("UserRoles")
+}
+
+model Feature {
+  id           Int             @id @default(autoincrement())
+  identifier   String          @unique @default(uuid())
+  operationId  String
+  api          String
+  resource     String
+  resourceType ResourceType    @default(HTTP)
+  action       Action
+  anonymity    AnonymityLevel  @default(PUBLIC)
+  effect       Effect?         @default(ALLOW)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  createdById  Int?
+  updatedById  Int?
+  status       Status          @default(ACTIVE)
+  createdBy    User?           @relation("FeatureCreatedBy", fields: [createdById], references: [id])
+  updatedBy    User?           @relation("FeatureUpdatedBy", fields: [updatedById], references: [id])
+  policies     FeaturePolicy[]
+  roles        Role[]          @relation("RoleFeatures")
+
+  @@unique([operationId, api, resource, action, status])
+}
+
+model Policy {
+  id          Int             @id @default(autoincrement())
+  name        String          @unique
+  conditions  Json?
+  factors     Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  createdById Int?
+  updatedById Int?
+  status      Status          @default(ACTIVE)
+  features    FeaturePolicy[]
+  createdBy   User?           @relation("PolicyCreatedBy", fields: [createdById], references: [id])
+  updatedBy   User?           @relation("PolicyUpdatedBy", fields: [updatedById], references: [id])
+  roles       RolePolicy[]
+  users       UserPolicy[]
+}
+
+model UserPolicy {
+  userId   Int
+  policyId Int
+  policy   Policy @relation(fields: [policyId], references: [id])
+  user     User   @relation(fields: [userId], references: [id])
+
+  @@id([userId, policyId])
+}
+
+model RolePolicy {
+  roleId   Int
+  policyId Int
+  policy   Policy @relation(fields: [policyId], references: [id])
+  role     Role   @relation(fields: [roleId], references: [id])
+
+  @@id([roleId, policyId])
+}
+
+model FeaturePolicy {
+  featureId Int
+  policyId  Int
+  feature   Feature @relation(fields: [featureId], references: [id])
+  policy    Policy  @relation(fields: [policyId], references: [id])
+
+  @@id([featureId, policyId])
+}
+
+model Alias {
+  id          Int      @id @default(autoincrement())
+  identifier  String   @unique
+  key         String
+  userId      Int
+  alias       String?  @unique
+  createdById Int?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  status      StatusAlias
+
+  user        User     @relation("AliasKeys", fields: [userId], references: [id])
+}
+
+enum StatusAlias {
+  ACTIVE
+  INACTIVE
+  REVOKED
+}
+
+enum Effect {
+  ALLOW
+  DENY
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+  CREATED
+}
+
+enum Action {
+  GET
+  POST
+  PUT
+  DELETE
+  PATCH
+}
+
+enum ResourceType {
+  HTTP
+  WEBSOCKET
+}
+
+enum AnonymityLevel {
+  PUBLIC
+  ANONYMOUS
+  RESTRICTED
+}

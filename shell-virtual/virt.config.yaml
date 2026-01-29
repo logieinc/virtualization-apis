@@ -1,0 +1,82 @@
+# Nombre del environment por defecto cuando no se pasa --env
+default: local
+
+# Variables reutilizables para placeholders ${VAR}
+variables:
+  DATA_ROOT: /Users/fabian/work01
+  OPENSEARCH_STG: https://opensearch.example.com
+  MONGO_STG: mongodb://user:pass@mongo.example.com:27017/?authSource=admin
+  PG_HOST_STG: stg-db.example.com
+  PG_USER_STG: postgres
+  PG_PASSWORD_STG: change-me
+
+# Lista de environments disponibles
+environments:
+  # Environment local (usa docker compose)
+  local:
+    # API base para comandos que llaman a la virtual API (parties/simulate)
+    apiUrl: http://localhost:4000
+    # paths puede usarse para rutas base (ej. workspace/proyectos)
+    paths:
+      workspace: ./resources
+    # Postgres local via docker compose
+    postgres:
+      mode: compose
+      service: postgres
+      user: postgres
+      # Exposed host port (compose exec doesn't use it, but keeps config consistent)
+      port: 5433
+      adminDb: postgres
+      composeDir: ../
+    # Bases con destinos separados (override por nombre de DB)
+    # Se usa con: `virt postgres ... --target api_wallet`
+    # Si el nombre de la DB coincide, no hace falta --target.
+    databases:
+      api-wallet:
+        mode: compose
+        service: postgres-wallet
+        user: postgres
+        # Exposed host port (compose exec doesn't use it, but keeps config consistent)
+        port: 5433
+        adminDb: postgres
+        composeDir: ../
+      api-security:
+        mode: compose
+        service: postgres-security
+        user: postgres
+        # Exposed host port (compose exec doesn't use it, but keeps config consistent)
+        port: 5433
+        adminDb: postgres
+        composeDir: ../
+    # OpenSearch local
+    opensearch:
+      url: http://localhost:9200
+    # Mongo local
+    mongo:
+      url: mongodb://mongo:mongo@localhost:27017/?authSource=admin
+      db: virtual
+
+  # Environment de stage (conexión directa)
+  stg:
+    apiUrl: https://api.example.com
+    postgres:
+      mode: direct
+      host: ${PG_HOST_STG}
+      port: 5432
+      user: ${PG_USER_STG}
+      password: ${PG_PASSWORD_STG}
+      adminDb: postgres
+    # Alternativa: targets por base en stage
+    databases:
+      api-wallet:
+        mode: direct
+        host: ${PG_HOST_STG}
+        port: 5432
+        user: ${PG_USER_STG}
+        password: ${PG_PASSWORD_STG}
+        adminDb: postgres
+    opensearch:
+      url: ${OPENSEARCH_STG}
+    mongo:
+      url: ${MONGO_STG}
+      db: virtual

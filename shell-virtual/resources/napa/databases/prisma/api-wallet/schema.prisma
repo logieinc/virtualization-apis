@@ -1,0 +1,401 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "linux-arm64-openssl-3.0.x", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-1.1.x"]
+}
+
+// generator erd {
+//   provider = "prisma-erd-generator"
+// }
+
+enum PartyStatus {
+  ACTIVE
+  INACTIVE
+  DELETED
+  ADMIN_BLOCKED
+}
+
+model Party {
+  id                BigInt       @id @default(autoincrement()) @db.BigInt
+  name              String       @unique
+  identifier        String?      @unique @default(cuid())
+  firstName         String?
+  lastName          String?
+  type              String
+  subtype           String?
+  parent            Party?       @relation("PartyHierarchy", fields: [parentId], references: [id])
+  parentId          BigInt?
+  chain             String
+  externalReference String?      @unique
+  status            PartyStatus  @default(ACTIVE)
+  visible           Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @default(now())
+  createdBy         String?
+  metadata          Json?
+  users             User[]
+  accounts          Account[]
+  groups            PartyGroup[]
+  limits            Limit[]
+  rules             Rule[]
+
+  Party Party[] @relation("PartyHierarchy")
+  // imdex parerntId_index
+  @@index([parentId], name: "parentId_index")
+}
+
+model Group {
+  id      Int          @id @default(autoincrement())
+  name    String
+  parties PartyGroup[]
+}
+
+model PartyGroup {
+  partyId BigInt
+  groupId Int
+  party   Party  @relation(fields: [partyId], references: [id])
+  group   Group  @relation(fields: [groupId], references: [id])
+
+  @@id([partyId, groupId])
+}
+
+model User {
+  id                Int          @id @default(autoincrement())
+  username          String       @unique
+  role              String
+  externalReference String?      @unique
+  partyId           BigInt
+  party             Party        @relation(fields: [partyId], references: [id])
+  permissions       Permission[]
+  logs              Log[]
+}
+
+model Account {
+  id                BigInt         @id @default(autoincrement()) @db.BigInt
+  identifier        String?        @unique @default(cuid())
+  name              String
+  availableBalance  BigInt         @default(0)
+  depositBalance    BigInt         @default(0)
+  payoutBalance     BigInt         @default(0)
+  bonusBalance      BigInt         @default(0)
+  pendingBalance    BigInt         @default(0)
+  blockedBalance    BigInt         @default(0)
+  currencyId        String
+  currency          Currency       @relation(fields: [currencyId], references: [id])
+  status            String         @default("active")
+  externalReference String?        @unique
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  chain             String
+  partyId           BigInt
+  party             Party          @relation(fields: [partyId], references: [id])
+  operationsFrom    Operation[]    @relation("SourceAccount")
+  operationsTo      Operation[]    @relation("DestinationAccount")
+  limits            Limit[]
+  triggers          Trigger[]
+  permissions       Permission[]
+  rule              Rule?          @relation(fields: [ruleId], references: [id])
+  ruleId            Int?
+  LimitCounter      LimitCounter[]
+
+  @@index([chain], name: "chain_index")
+  @@index([partyId], name: "partyId_index")
+}
+
+model Currency {
+  id               String    @id
+  name             String
+  symbol           String
+  decimalPrecision Float
+  type             String
+  accounts         Account[]
+}
+
+enum OperationType {
+  DEBIT
+  CREDIT
+  TRANSFER
+}
+
+model Operation {
+  id                     BigInt                     @id @default(autoincrement()) @db.BigInt
+  identifier             String?                    @unique @default(cuid())
+  amount                 BigInt
+  operationType          OperationType
+  subtype                String
+  status                 String                     @default("CREATED")
+  timestamp              DateTime                   @default(now())
+  externalReference      String?                    @unique
+  stageReference         String? //used to save round or stage reference
+  comment                String?
+  sourceAccountId        BigInt?
+  sourceAccount          Account?                   @relation("SourceAccount", fields: [sourceAccountId], references: [id])
+  destinationAccountId   BigInt
+  destinationAccount     Account                    @relation("DestinationAccount", fields: [destinationAccountId], references: [id])
+  metadata               Json?
+  vertical               String?
+  gameName               String?
+  gameCategory           String?
+  game                   String?
+  origin                 String?
+  integrator             String?
+  provider               String?
+  brand                  String?
+  chain                  String
+  direction              String? //used to save the direction of the transfers
+  availableBalanceBefore BigInt?
+  depositBalanceBefore   BigInt?
+  payoutBalanceBefore    BigInt?
+  bonusBalanceBefore     BigInt?
+  pendingBalanceBefore   BigInt?
+  blockedBalanceBefore   BigInt?
+  availableBalanceAfter  BigInt?
+  depositBalanceAfter    BigInt?
+  payoutBalanceAfter     BigInt?
+  bonusBalanceAfter      BigInt?
+  pendingBalanceAfter    BigInt?
+  blockedBalanceAfter    BigInt?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  createdBy              Int
+  settledAt              DateTime?                  @default(now())
+
+  
+  @@index([externalReference], type: Hash)
+  @@index([stageReference], name: "stageReference_index")
+  @@index([destinationAccountId], name: "destinationAccountId_index")
+  @@index([sourceAccountId], name: "sourceAccountId_index")
+  @@index([timestamp], name: "timestamp_index")
+  @@index([settledAt], name: "settledAt_index")
+  @@index([identifier], name: "identifier_index")
+}
+
+model OperationEvent {
+  id                     BigInt                     @id @default(autoincrement()) @db.BigInt
+  identifier             String?                    @unique @default(cuid())
+  amount                 BigInt
+  operationType          OperationType
+  subtype                String
+  status                 String                     @default("CREATED")
+  timestamp              DateTime                   @default(now())
+  externalReference      String?                    @unique
+  stageReference         String? //used to save round or stage reference
+  comment                String?
+  sourceAccountId        BigInt?
+  destinationAccountId   BigInt
+  metadata               Json?
+  vertical               String?
+  gameName               String?
+  gameCategory           String?
+  game                   String?
+  origin                 String?
+  integrator             String?
+  provider               String?
+  brand                  String?
+  chain                  String
+  direction              String? //used to save the direction of the transfers
+  availableBalanceBefore BigInt?
+  depositBalanceBefore   BigInt?
+  payoutBalanceBefore    BigInt?
+  bonusBalanceBefore     BigInt?
+  pendingBalanceBefore   BigInt?
+  blockedBalanceBefore   BigInt?
+  availableBalanceAfter  BigInt?
+  depositBalanceAfter    BigInt?
+  payoutBalanceAfter     BigInt?
+  bonusBalanceAfter      BigInt?
+  pendingBalanceAfter    BigInt?
+  blockedBalanceAfter    BigInt?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  createdBy              Int
+  settledAt              DateTime?                  @default(now())
+
+  
+  @@index([externalReference], type: Hash)
+  @@index([stageReference], name: "stageReference1_index")
+  @@index([destinationAccountId], name: "destinationAccountId1_index")
+  @@index([sourceAccountId], name: "sourceAccountId1_index")
+  @@index([timestamp], name: "timestamp1_index")
+  @@index([settledAt], name: "settledAt1_index")
+  @@index([identifier], name: "identifier1_index")
+}
+
+model CompositeOperationView {
+  id                     BigInt                     @id @default(autoincrement()) @db.BigInt
+  identifier             String?                    @unique @default(cuid())
+  amount                 BigInt
+  operationType          OperationType
+  subtype                String
+  status                 String                     @default("CREATED")
+  timestamp              DateTime                   @default(now())
+  externalReference      String?                    @unique
+  stageReference         String? //used to save round or stage reference
+  comment                String?
+  sourceAccountId        BigInt?
+  destinationAccountId   BigInt
+  metadata               Json?
+  vertical               String?
+  gameName               String?
+  gameCategory           String?
+  game                   String?
+  origin                 String?
+  integrator             String?
+  provider               String?
+  brand                  String?
+  chain                  String
+  direction              String? //used to save the direction of the transfers
+  availableBalanceBefore BigInt?
+  depositBalanceBefore   BigInt?
+  payoutBalanceBefore    BigInt?
+  bonusBalanceBefore     BigInt?
+  pendingBalanceBefore   BigInt?
+  blockedBalanceBefore   BigInt?
+  availableBalanceAfter  BigInt?
+  depositBalanceAfter    BigInt?
+  payoutBalanceAfter     BigInt?
+  bonusBalanceAfter      BigInt?
+  pendingBalanceAfter    BigInt?
+  blockedBalanceAfter    BigInt?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  createdBy              Int
+  settledAt              DateTime?                  @default(now())
+
+  
+  @@map("CompositeOperationView")
+}
+
+model LinkedOperation {
+  id              Int       @id @default(autoincrement())
+  fromOperationId BigInt
+  toOperationId   BigInt
+  qualifier       String
+
+  @@unique([fromOperationId, toOperationId])
+  @@index([fromOperationId], name: "fromOperationId_index")
+  @@index([toOperationId], name: "toOperationId_index")
+}
+
+model Permission {
+  id         Int       @id @default(autoincrement())
+  action     String
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id])
+  accountId  BigInt
+  account    Account   @relation(fields: [accountId], references: [id])
+  expiration DateTime?
+}
+
+enum LimitType {
+  BET
+  DEPOSIT
+  BALANCE
+  LOOSES
+}
+
+model Limit {
+  id             Int       @id @default(autoincrement())
+  type           LimitType
+  period         String
+  periodHoursQty Int
+  limit          BigInt
+  softLimit      BigInt
+  accumulated    BigInt
+  partyId        BigInt?
+  party          Party?    @relation(fields: [partyId], references: [id])
+  accountId      BigInt?
+  account        Account?  @relation(fields: [accountId], references: [id])
+  parentId       Int?
+  parent         Limit?    @relation("LimitHierarchy", fields: [parentId], references: [id])
+  children       Limit[]   @relation("LimitHierarchy")
+  chain          String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  status         String
+}
+
+enum CounterType {
+  BET
+  DEPOSIT
+  PAYOUT
+  TRANSFER
+  WITHDRAWAL
+}
+
+model LimitCounter {
+  id        Int         @id @default(autoincrement())
+  type      CounterType
+  amount    BigInt
+  year      Int
+  month     Int
+  day       Int
+  hour      Int
+  startDate DateTime
+  accountId BigInt
+  account   Account     @relation(fields: [accountId], references: [id])
+
+  @@index([year], name: "year_index")
+  @@index([month], name: "month_index")
+  @@index([day], name: "day_index")
+  @@index([hour], name: "hour_index")
+  @@index([startDate], name: "startDate_index")
+}
+
+model Trigger {
+  id          Int        @id @default(autoincrement())
+  event       String
+  action      String
+  accountId   BigInt?
+  account     Account?   @relation(fields: [accountId], references: [id])
+  operationId BigInt?
+  status      String
+  rules       Rule[]
+}
+
+model Rule {
+  id         Int         @id @default(autoincrement())
+  condition  String
+  action     String
+  priority   Int
+  triggerId  Int?
+  operationId BigInt?
+  trigger    Trigger?    @relation(fields: [triggerId], references: [id])
+  accounts   Account[]   @relation
+  parties    Party[]     @relation
+}
+
+model Log {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  timestamp DateTime @default(now())
+  details   String
+}
+
+model OperationStatusChangeLog {
+  id                     Int       @id @default(autoincrement())
+  operationId            BigInt
+  oldStatus              String
+  newStatus              String
+  changedAt              DateTime  @default(now())
+  availableBalanceBefore BigInt
+  depositBalanceBefore   BigInt
+  payoutBalanceBefore    BigInt
+  bonusBalanceBefore     BigInt
+  pendingBalanceBefore   BigInt
+  blockedBalanceBefore   BigInt
+  availableBalanceAfter  BigInt
+  depositBalanceAfter    BigInt
+  payoutBalanceAfter     BigInt
+  bonusBalanceAfter      BigInt
+  pendingBalanceAfter    BigInt
+  blockedBalanceAfter    BigInt
+
+  @@index([operationId], name: "operationId_index")
+}

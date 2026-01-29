@@ -1,0 +1,186 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
+model Currency {
+  identifier       String    @id
+  name             String
+  symbol           String
+  decimalPrecision Float
+  type             String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String
+  completedAt      DateTime?
+}
+
+enum RequestType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+}
+
+model Request {
+  identifier                   String      @id @default(cuid())
+  amount                       BigInt
+  releasedAmount               BigInt?
+  subtype                      String?
+  status                       String      @default("CREATED")
+  decimalPrecision             Float
+  timestamp                    DateTime    @default(now())
+  channelExternalReference     String?     @unique
+  channelIntegrationReference  String?
+  walletOperationIdentifier    String?
+  comment                      String?
+  sourceAccountUsername        String?
+  destinationAccountUsername   String?
+  sourceAccountIdentifier      String?
+  destinationAccountIdentifier String
+  metadata                     Json?
+  channel                      String?
+  integration                  String?
+  chain                        String
+  direction                    String? //used to save the direction of the transfers
+  availableBalanceBefore       BigInt?
+  depositBalanceBefore         BigInt?
+  payoutBalanceBefore          BigInt?
+  bonusBalanceBefore           BigInt?
+  pendingBalanceBefore         BigInt?
+  blockedBalanceBefore         BigInt?
+  availableBalanceAfter        BigInt?
+  depositBalanceAfter          BigInt?
+  payoutBalanceAfter           BigInt?
+  bonusBalanceAfter            BigInt?
+  pendingBalanceAfter          BigInt?
+  blockedBalanceAfter          BigInt?
+  manualProcessingReason       String?
+  currencyId                   String
+  requestType                  RequestType
+  createdAt                    DateTime    @default(now())
+  updatedAt                    DateTime    @updatedAt
+  createdBy                    String
+  completedAt                  DateTime?
+  requesterIp                  String?
+  allowedIps                   String?
+  browserFingerprint           String?
+  immediate                    Boolean     @default(false)
+
+  @@index([channelExternalReference], name: "channelExternalReference_index")
+  @@index([destinationAccountUsername], name: "destinationAccountUsername_index")
+  @@index([sourceAccountUsername], name: "sourceAccountUsername_index")
+  @@index([timestamp], name: "timestamp_index")
+  @@index([completedAt], name: "settledAt_index")
+  @@index([identifier], name: "identifier_index")
+}
+
+model LinkedRequest {
+  identifier    String    @id @default(cuid())
+  fromRequestId String
+  toRequestId   String
+  qualifier     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String
+  completedAt   DateTime?
+
+  @@unique([fromRequestId, toRequestId])
+  @@index([fromRequestId], name: "fromRequestId_index")
+  @@index([toRequestId], name: "toRequestId_index")
+}
+
+model RequestStatusChangeLog {
+  identifier             String    @id @default(cuid())
+  requestIdentifier      String
+  oldStatus              String
+  newStatus              String
+  changedAt              DateTime  @default(now())
+  changedBy              String
+  metadata               Json?
+  requestBefore          Json?
+  requestAfter           Json?
+  availableBalanceBefore BigInt?
+  depositBalanceBefore   BigInt?
+  payoutBalanceBefore    BigInt?
+  bonusBalanceBefore     BigInt?
+  pendingBalanceBefore   BigInt?
+  blockedBalanceBefore   BigInt?
+  availableBalanceAfter  BigInt?
+  depositBalanceAfter    BigInt?
+  payoutBalanceAfter     BigInt?
+  bonusBalanceAfter      BigInt?
+  pendingBalanceAfter    BigInt?
+  blockedBalanceAfter    BigInt?
+  metadataType           String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime? @updatedAt
+  createdBy              String?
+  completedAt            DateTime?
+
+  @@index([requestIdentifier], name: "requestIdentifier_index")
+}
+
+model Attachment {
+  identifier         String    @id @default(cuid())
+  filePath           String
+  fileType           String
+  chain              String
+  requestId          String
+  externalType       String
+  externalIdentifier String
+  metadataType       String?
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdBy          String
+  completedAt        DateTime?
+}
+
+model Charge {
+  identifier   String    @id @default(cuid())
+  subType      String?
+  chain        String
+  description  String
+  amount       Float
+  percentage   Float
+  requestId    String
+  chargeTypeId String
+  metadata     Json?
+  metadataType String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  createdBy    String
+  completedAt  DateTime?
+}
+
+model ChargeType {
+  identifier  String    @id @default(cuid())
+  name        String
+  description String?
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   String
+  completedAt DateTime?
+}
+
+// api-payments entity model
+
+model PaymentChannel {
+  identifier    String    @id @default(cuid())
+  prettyName    String
+  channelUrl    String
+  channelUserId String
+  channel       String
+  metadata      Json?
+  metadataType  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String
+  completedAt   DateTime?
+}

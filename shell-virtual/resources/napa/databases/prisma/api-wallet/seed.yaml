@@ -1,0 +1,78 @@
+tables:
+  Currency:
+    upsertBy: [id]
+    rows:
+      - id: USD
+        name: US Dollar
+        symbol: $
+        decimalPrecision: 0.01
+        type: fiat
+      - id: EUR
+        name: Euro
+        symbol: €
+        decimalPrecision: 0.01
+        type: fiat
+      - id: BTC
+        name: Bitcoin
+        symbol: ₿
+        decimalPrecision: 0.00000001
+        type: crypto
+      - id: ETH
+        name: Ethereum
+        symbol: Ξ
+        decimalPrecision: 0.00000001
+        type: crypto
+      - id: FAN
+        name: Fantasy Coin
+        symbol: F
+        decimalPrecision: 0.5
+        type: fantasy
+      - id: BRL
+        name: Brazilian Real
+        symbol: R$
+        decimalPrecision: 0.01
+        type: fiat
+      - id: ARS
+        name: Argentinan Peso
+        symbol: $
+        decimalPrecision: 0.01
+        type: fiat
+      - id: DOP
+        name: Dominican Peso
+        symbol: $
+        decimalPrecision: 0.01
+        type: fiat
+      - id: PEN
+        name: Peruvian Nuevo Sol
+        symbol: S/.
+        decimalPrecision: 0.01
+        type: fiat
+  Party:
+    upsertBy: [name]
+    rows:
+      - name: main
+        type: organization
+        parentId: null
+        chain: ""
+  Account:
+    upsertBy: [externalReference]
+    rows:
+      - externalReference: main-USD
+        partyId:
+          ref:
+            table: Party
+            where:
+              name: main
+            column: id
+        name: main
+        chain: ""
+        currencyId: USD
+        status: active
+        availableBalance: 10000000
+        depositBalance: 10000000
+        payoutBalance: 0
+        bonusBalance: 0
+        pendingBalance: 0
+        blockedBalance: 0
+        updatedAt:
+          sql: NOW()

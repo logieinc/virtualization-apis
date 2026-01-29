@@ -1,0 +1,109 @@
+tables:
+  Currency:
+    upsertBy: [id]
+    rows:
+      - id: USD
+        name: US Dollar
+        symbol: $
+        decimalPrecision: 0.01
+        type: fiat
+        updatedAt:
+          sql: NOW()
+      - id: EUR
+        name: Euro
+        symbol: €
+        decimalPrecision: 0.01
+        type: fiat
+        updatedAt:
+          sql: NOW()
+      - id: BTC
+        name: Bitcoin
+        symbol: ₿
+        decimalPrecision: 0.00000001
+        type: crypto
+        updatedAt:
+          sql: NOW()
+      - id: ETH
+        name: Ethereum
+        symbol: Ξ
+        decimalPrecision: 0.00000001
+        type: crypto
+        updatedAt:
+          sql: NOW()
+      - id: FAN
+        name: Fantasy Coin
+        symbol: F
+        decimalPrecision: 0.5
+        type: fantasy
+        updatedAt:
+          sql: NOW()
+      - id: BRL
+        name: Brazilian Real
+        symbol: R$
+        decimalPrecision: 0.01
+        type: fiat
+        updatedAt:
+          sql: NOW()
+      - id: ARS
+        name: Argentinian Peso
+        symbol: $
+        decimalPrecision: 0.01
+        type: fiat
+        updatedAt:
+          sql: NOW()
+      - id: DOP
+        name: Dominican Peso
+        symbol: $
+        decimalPrecision: 0.01
+        type: fiat
+        updatedAt:
+          sql: NOW()
+      - id: PEN
+        name: Peruvian Nuevo Sol
+        symbol: S/.
+        decimalPrecision: 0.01
+        type: fiat
+        updatedAt:
+          sql: NOW()
+  Party:
+    upsertBy: [alias]
+    rows:
+      - id: 00000000-0000-0000-0000-000000000001
+        shortId: AFF-SEED-0001
+        name: Napa Affiliations HQ
+        alias: napa-hq
+        aliases:
+          sql: "ARRAY['napa-central']::text[]"
+        type: ORGANIZATION
+        metadata:
+          firstName: Ana
+          lastName: Lopez
+          phone: +1-555-0100
+          address: 123 Market Street, Montevideo, UY
+          email: hq@napa-affiliations.com
+          username: napa-hq
+          identifierType: TAX-ID
+          identifierValue: NAPA-HQ-001
+        status: ACTIVE
+        externalIdentifier: crm-org-0001
+        qrIdentifier: null
+        balance: 0
+        currencyId: USD
+        updatedAt:
+          sql: NOW()
+  PartyClosure:
+    upsertBy: [ancestorId, descendantId]
+    rows:
+      - ancestorId:
+          ref:
+            table: Party
+            where:
+              alias: napa-hq
+            column: id
+        descendantId:
+          ref:
+            table: Party
+            where:
+              alias: napa-hq
+            column: id
+        depth: 0

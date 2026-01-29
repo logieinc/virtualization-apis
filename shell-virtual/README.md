@@ -1,6 +1,6 @@
 ## Shell Virtual CLI
 
-Herramienta en Node.js/TypeScript para cargar datos en OpenSearch desde la línea de comandos.
+Herramienta en Node.js/TypeScript para cargar datos en OpenSearch, Postgres y MongoDB desde la línea de comandos.
 
 > Este módulo se creó copiando la estructura de `shell-affiliations`. Ajustá los comandos y endpoints según el contexto de virtualización.
 
@@ -8,6 +8,7 @@ Herramienta en Node.js/TypeScript para cargar datos en OpenSearch desde la líne
 
 - Node.js 20 o superior.
 - OpenSearch corriendo y accesible (por defecto en `http://localhost:9200`).
+- Postgres disponible (por defecto via Docker Compose en `virtualization-apis`).
 
 ### Instalación y enlace rápido
 
@@ -22,23 +23,22 @@ npm run build
 npm link
 ```
 
-Puedes copiar `.env.example` a `.env` para configurar la URL y credenciales de OpenSearch:
+El CLI se configura con un archivo YAML por ambientes.  
+También podés ejecutar el CLI sin compilar usando `npm run dev -- <comando>` mientras desarrollás.
 
-```bash
-cp .env.example .env
-# (opcional) editar .env para apuntar a otro endpoint o setear usuario/password
-```
+### Configuración por ambientes (YAML)
 
-> El CLI busca primero un `.env` en el directorio desde donde lo ejecutás; si no existe, usa `shell-virtual/.env`.
-> También podés ejecutar el CLI sin compilar usando `npm run dev -- <comando>` mientras desarrollás.
+El CLI lee un archivo YAML en el directorio actual:
 
-### Variables de entorno
+- `virt.config.yaml` / `virt.config.yml`
+- `.virt.yaml` / `.virt.yml`
+- `.env.yaml` / `.env.yml`
 
-- `OPENSEARCH_URL` (por defecto `http://localhost:9200`)
-- `OPENSEARCH_USER` (opcional)
-- `OPENSEARCH_PASSWORD` (opcional)
-- `MONGO_URL` (por defecto `mongodb://localhost:27017`)
-- `MONGO_DB` (por defecto `virtual`)
+Ejemplo: `virt.config.example.yaml` (incluido).  
+Selecciona el environment con `--env <nombre>`.
+
+Cuando `postgres.mode` es `direct`, el CLI usa `psql` del host (requiere tenerlo instalado).
+Si definís `databases.<nombre>`, podés elegir el destino con `--target <nombre>`; si el nombre de la DB coincide, se usa automáticamente.
 
 ### Comandos principales
 
@@ -91,6 +91,140 @@ virt mongo export party --format yaml --output resources/model/party/data.yaml
 
 ---
 
+### Comandos Postgres
+
+```bash
+virt postgres <comando> [opciones]
+```
+
+> Si ejecutas el CLI fuera de `virtualization-apis`, usa `--compose-dir` o `COMPOSE_DIR` para ubicar el `docker-compose.yml`.
+
+#### Configuración (`virt.config.yaml`)
+
+El archivo `virt.config.yaml` define los environments y cómo conectarse a los servicios.
+
+- Estructura mínima:
+
+```yaml
+default: local
+variables:
+  # Variables reutilizables para placeholders ${VAR}
+  PG_HOST_STG: stg-db.example.com
+environments:
+  local:
+    apiUrl: http://localhost:4000
+    paths:
+      workspace: ./resources
+    postgres:
+      mode: compose # compose | direct
+      service: postgres
+      user: postgres
+      adminDb: postgres
+      composeDir: ../
+    databases:
+      api_wallet:
+        mode: compose
+        service: postgres-wallet
+        user: postgres
+        adminDb: postgres
+        composeDir: ../
+    opensearch:
+      url: http://localhost:9200
+    mongo:
+      url: mongodb://mongo:mongo@localhost:27017/?authSource=admin
+      db: virtual
+  stg:
+    apiUrl: https://api.example.com
+    postgres:
+      mode: direct
+      host: ${PG_HOST_STG}
+      port: 5432
+      user: ${PG_USER_STG}
+      password: ${PG_PASSWORD_STG}
+      adminDb: postgres
+```
+
+- `adminDb`: nombre de la base administrativa usada para conectarse (no es la password).
+- `password`: solo aplica en modo `direct`. En modo `compose`, la password la toma del contenedor (`POSTGRES_PASSWORD` en `docker-compose.yml`).
+- `port`: en modo `compose` no se usa para los comandos (se ejecuta dentro del contenedor), pero es útil para mantener la config consistente.
+- `mode`:
+  - `compose`: el CLI se conecta usando `docker compose exec` dentro del contenedor. No necesita `host`/`password` porque usa los del container.
+  - `direct`: el CLI se conecta por red a un Postgres externo. Requiere `host`, `port`, `user` y `password`.
+
+#### 1. Crear una base individual (opcionalmente con drop + schema)
+
+```bash
+virt postgres create-db api_wallet --schema-dir resources/napa/seeds/postgres/sql
+virt postgres create-db api_wallet --drop --yes --schema-file /ruta/schema.sql
+virt postgres create-db api_wallet --schema-file resources/napa/databases/prisma/api-wallet/schema.prisma
+virt postgres create-db api_wallet --target api_wallet --schema-dir resources/napa/seeds/postgres/sql
+```
+
+#### 2. Dropear una base individual
+
+```bash
+virt postgres drop-db api_wallet --yes
+virt postgres drop-db api_wallet --target api_wallet --yes
+```
+
+#### 3. Seed genérico (SQL)
+
+```bash
+virt postgres seed --db api_wallet --sql-file /ruta/seed.sql
+virt postgres seed --db api_wallet --sql-dir /ruta/sql
+virt postgres seed --db api_wallet --target api_wallet --sql-dir /ruta/sql
+```
+
+#### 4. Seed YAML (insert/update)
+
+```bash
+virt postgres seed-yaml --db api_wallet --seed resources/napa/databases/prisma/api-wallet/seed.yaml
+```
+
+Formato básico:
+
+```yaml
+tables:
+  Currency:
+    upsertBy: [id]
+    rows:
+      - id: USD
+        name: US Dollar
+        symbol: $
+        decimalPrecision: 0.01
+        type: fiat
+  Party:
+    upsertBy: [name]
+    rows:
+      - name: main
+        type: organization
+        chain: ""
+  Account:
+    upsertBy: [externalReference]
+    rows:
+      - externalReference: main-USD
+        partyId:
+          ref:
+            table: Party
+            where:
+              name: main
+            column: id
+        name: main
+        chain: ""
+        currencyId: USD
+        status: active
+        availableBalance: 10000000
+        depositBalance: 10000000
+        payoutBalance: 0
+        bonusBalance: 0
+        pendingBalance: 0
+        blockedBalance: 0
+        updatedAt:
+          sql: NOW()
+```
+
+---
+
 ### Comandos OpenSearch
 
 ```bash
@@ -118,6 +252,14 @@ virt opensearch create-index my-index --body index-settings.yaml
 ```
 
 - `--body` acepta un archivo JSON o YAML con settings/mappings.
+
+#### 2.1 Seed índice de operaciones
+
+```bash
+virt opensearch seed-operations
+virt opensearch seed-operations --reset
+virt opensearch seed-operations --dynamic-ids --dynamic-timestamps
+```
 
 #### 3. Insertar un documento
 

@@ -1,0 +1,65 @@
+security_users:
+  - name: "juan pino"
+    username: "jpino2025"
+    email: "jpino@email.com"
+    password: "$2a$10$40SJnt2xBh9KAesy8qGH5umpGqxFJdIWw8m3KaiKT9NXgMd2PAlpi"
+    partyId: "cmjcy8ijc0004bhdw5wpi9rn6"
+    status: "ACTIVE"
+    canLogin: true
+    metadata:
+      type: "person"
+      chain: "9YgX-cmjcy6fq50001bhdwydgkvrmj"
+      avatar: "https://cdn.jsdelivr.net/gh/faker-js/assets-person-portrait/female/512/63.jpg"
+      status: "ACTIVE"
+      partyId: "cmjcy8ijc0004bhdw5wpi9rn6"
+      currency:
+        name: "US Dollar"
+        type: "fiat"
+        symbol: "$"
+        decimalPrecision: 0.01
+      partyType: "person"
+
+wallet_operations:
+  - currency:
+      id: "USD"
+      name: "US Dollar"
+      symbol: "$"
+      decimalPrecision: 0.01
+      type: "fiat"
+    party:
+      name: "jpino2025"
+      identifier: "cmjcy8ijc0004bhdw5wpi9rn6"
+      type: "person"
+      chain: "9YgX-cmjcy6fq50001bhdwydgkvrmj"
+      status: "ACTIVE"
+      visible: true
+      metadata:
+        city: "test"
+        type: "person"
+        email: "pdiciembre@email.com"
+        phone: "54 15545453636"
+        avatar: "https://cdn.jsdelivr.net/gh/faker-js/assets-person-portrait/female/512/63.jpg"
+        idType: "DNI"
+        address: "Caracas 1231"
+        country: "ttest"
+        fullName: "dasdasd asdasd"
+        idNumber: "38499328"
+        userName: "pdiciembre"
+        birthdate: "1993-10-12T00:00:00.000Z"
+    account:
+      name: "jpino2025"
+      currencyId: "USD"
+      status: "active"
+      identifier: "cmjcy8ijp0005bhdwdw9w1bnr"
+      balances:
+        available: 0
+        deposit: 0
+        payout: 0
+        bonus: 0
+        pending: 0
+        blocked: 0
+    operation:
+      amount: 1000
+      operationType: "deposit"
+      subtype: "seed"
+      status: "CREATED"

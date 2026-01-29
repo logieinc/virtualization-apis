@@ -6,11 +6,13 @@ import { Command } from 'commander';
 import { MongoClient, ObjectId } from 'mongodb';
 import YAML from 'yaml';
 
+import { resolveEnvironment } from '../config';
+
 const YAML_EXTENSIONS = new Set(['.yaml', '.yml']);
 
 type MongoBaseOptions = {
-  uri: string;
-  db: string;
+  uri?: string;
+  db?: string;
   yes?: boolean;
 };
 
@@ -38,9 +40,15 @@ type MongoExportOptions = MongoBaseOptions & {
 };
 
 function resolveMongoOptions(options: MongoBaseOptions): { uri: string; db: string; yes?: boolean } {
+  const config = resolveEnvironment();
+  const configMongo = config.env?.mongo;
   return {
-    uri: options.uri ?? process.env.MONGO_URL ?? 'mongodb://localhost:27017',
-    db: options.db ?? process.env.MONGO_DB ?? 'virtual',
+    uri:
+      options.uri ??
+      configMongo?.url ??
+      process.env.MONGO_URL ??
+      'mongodb://localhost:27017',
+    db: options.db ?? configMongo?.db ?? process.env.MONGO_DB ?? 'virtual',
     yes: options.yes
   };
 }
