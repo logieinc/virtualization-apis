@@ -27,6 +27,11 @@ type PostgresDropDbOptions = PostgresBaseOptions & {
   yes?: boolean;
 };
 
+type PostgresCleanDbOptions = PostgresBaseOptions & {
+  adminDb?: string;
+  yes?: boolean;
+};
+
 type PostgresSeedOptions = PostgresBaseOptions & {
   db?: string;
 };
@@ -380,6 +385,26 @@ async function dropDatabaseDirect(
     ssl,
     `DROP DATABASE "${name}";`
   );
+}
+
+function buildCleanDatabaseSql(schema = 'public'): string {
+  return `
+DO $$
+DECLARE
+  truncate_sql text;
+BEGIN
+  SELECT
+    'TRUNCATE TABLE ' || string_agg(format('%I.%I', schemaname, tablename), ', ') || ' RESTART IDENTITY CASCADE'
+  INTO truncate_sql
+  FROM pg_tables
+  WHERE schemaname = '${schema}'
+    AND tablename <> '_prisma_migrations';
+
+  IF truncate_sql IS NOT NULL THEN
+    EXECUTE truncate_sql;
+  END IF;
+END $$;
+`.trim();
 }
 
 async function runPsqlCompose(
@@ -1394,6 +1419,81 @@ export function registerPostgresCommand(program: Command): void {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Error while dropping database: ${message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  postgres
+    .command('clean-db <name>')
+    .summary('Delete all data from a database without dropping its schema')
+    .option('-s, --service <name>', 'Docker Compose service name', DEFAULT_SERVICE)
+    .option('-u, --user <name>', 'Database user', DEFAULT_USER)
+    .option('-a, --admin-db <name>', 'Admin database name', DEFAULT_ADMIN_DB)
+    .option('-t, --target <name>', 'Database target from config (overrides postgres settings)')
+    .option('-y, --yes', 'Skip confirmation for destructive actions', false)
+    .option('--compose-dir <path>', 'Directory with docker-compose.yml', DEFAULT_COMPOSE_DIR)
+    .action(async (name: string, options: PostgresCleanDbOptions) => {
+      try {
+        const runtime = resolvePostgresRuntime(options, name);
+
+        if (!options.yes) {
+          throw new Error('Use --yes to confirm cleaning all database data.');
+        }
+
+        if (runtime.mode === 'direct') {
+          if (!runtime.host) {
+            throw new Error('Missing Postgres host for direct mode.');
+          }
+          await waitForPostgresDirect(
+            runtime.host,
+            runtime.port ?? 5432,
+            runtime.user,
+            runtime.password,
+            runtime.adminDb,
+            runtime.ssl,
+            30,
+            2
+          );
+        } else {
+          await waitForPostgresCompose(
+            runtime.service,
+            runtime.user,
+            runtime.adminDb,
+            runtime.composeDir,
+            30,
+            2
+          );
+        }
+
+        const exists =
+          runtime.mode === 'direct'
+            ? await databaseExistsDirect(
+                runtime.host ?? '',
+                runtime.port ?? 5432,
+                runtime.user,
+                runtime.password,
+                runtime.adminDb,
+                runtime.ssl,
+                name
+              )
+            : await databaseExistsCompose(
+                runtime.service,
+                runtime.user,
+                runtime.adminDb,
+                runtime.composeDir,
+                name
+              );
+        if (!exists) {
+          console.info(`Database "${name}" does not exist.`);
+          return;
+        }
+
+        console.info(`Cleaning database "${name}" (truncate all tables)...`);
+        await runPsqlWithRuntime(runtime, name, buildCleanDatabaseSql());
+        console.info(`Database "${name}" cleaned.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Error while cleaning database: ${message}`);
         process.exitCode = 1;
       }
     });

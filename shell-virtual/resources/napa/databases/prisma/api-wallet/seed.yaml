@@ -51,28 +51,11 @@ tables:
     upsertBy: [name]
     rows:
       - name: main
+        identifier: 9YgX
+        externalReference: cmffw9lyk003i7brqefie1rql-331
         type: organization
         parentId: null
         chain: ""
-  Account:
-    upsertBy: [externalReference]
-    rows:
-      - externalReference: main-USD
-        partyId:
-          ref:
-            table: Party
-            where:
-              name: main
-            column: id
-        name: main
-        chain: ""
-        currencyId: USD
-        status: active
-        availableBalance: 10000000
-        depositBalance: 10000000
-        payoutBalance: 0
-        bonusBalance: 0
-        pendingBalance: 0
-        blockedBalance: 0
-        updatedAt:
-          sql: NOW()
+        status: ACTIVE
+        visible: false
+        metadata: null

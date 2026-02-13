@@ -167,7 +167,16 @@ virt postgres drop-db api_wallet --yes
 virt postgres drop-db api_wallet --target api_wallet --yes
 ```
 
-#### 3. Seed genérico (SQL)
+#### 3. Limpiar datos de una base (sin dropear schema)
+
+```bash
+virt postgres clean-db api_wallet --yes
+virt postgres clean-db api_wallet --target api_wallet --yes
+```
+
+`clean-db` hace `TRUNCATE ... RESTART IDENTITY CASCADE` sobre las tablas del schema `public` y excluye `_prisma_migrations`.
+
+#### 4. Seed genérico (SQL)
 
 ```bash
 virt postgres seed --db api_wallet --sql-file /ruta/seed.sql
@@ -175,11 +184,11 @@ virt postgres seed --db api_wallet --sql-dir /ruta/sql
 virt postgres seed --db api_wallet --target api_wallet --sql-dir /ruta/sql
 ```
 
-#### 4. Seed YAML (insert/upsert/update/delete, single o multi DB)
+#### 5. Seed YAML (insert/upsert/update/delete, single o multi DB)
 
 ```bash
 virt postgres seed-yaml --db api_wallet --seed resources/napa/databases/prisma/api-wallet/seed.yaml
-virt postgres seed-yaml --seed resources/napa/databases/prisma/multi-db.seed.example.yaml
+virt postgres seed-yaml --seed resources/napa/databases/prisma/user-party.yaml
 ```
 
 Formato básico (compatibilidad actual, una sola DB):

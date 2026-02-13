@@ -1,0 +1,92 @@
+variables:
+  ROOT_PARTY_NAME: main
+  ROOT_PARTY_IDENTIFIER: 9YgX
+  ROOT_PARTY_EXTERNAL_REFERENCE: cmffw9lyk003i7brqefie1rql-331
+  ROOT_CHAIN: ""
+  PLAYER_USERNAME: mponce104
+  PLAYER_NAME: usercientoonce storefront
+  PLAYER_EMAIL: mponce+104@naturapy.net
+  PLAYER_PASSWORD_BCRYPT: $2a$10$.lYT8l45zdKDSgemSpD0HuGsY8sHic0PIkNaw9PAlwaF1I4ZNmVrC
+  PLAYER_EXTERNAL_REFERENCE: cmllbf2pn000afa95bqwao0ot
+  PLAYER_PARTY_IDENTIFIER: cmllbf2kf02hz1m67acd02k4v
+  PLAYER_ACCOUNT_IDENTIFIER: cmllbf2l602i01m67ct3mt34a
+  PLAYER_PARTY_CHAIN: 9YgX
+  PLAYER_ACCOUNT_CHAIN: 9YgX-cmfy980u800obbinrwzsr7uxv
+  PLAYER_PARTY_TYPE: person
+  PLAYER_PARENT_ID: 1
+  ACCOUNT_CURRENCY: DOP
+  ACCOUNT_STATUS: active
+
+databases:
+  api-security:
+    db: api-security
+    target: api-security
+    tables:
+      User:
+        upsertBy: [username]
+        rows:
+          - identifier: "{{vars.PLAYER_EXTERNAL_REFERENCE}}"
+            name: "{{vars.PLAYER_NAME}}"
+            username: "{{vars.PLAYER_USERNAME}}"
+            email: "{{vars.PLAYER_EMAIL}}"
+            password: "{{vars.PLAYER_PASSWORD_BCRYPT}}"
+            partyId: "{{vars.PLAYER_PARTY_IDENTIFIER}}"
+            status: ACTIVE
+            canLogin: true
+            metadata:
+              chain: "{{vars.PLAYER_PARTY_CHAIN}}"
+              partyId: "{{vars.PLAYER_PARTY_IDENTIFIER}}"
+              parentId: "{{vars.PLAYER_PARENT_ID}}"
+              accountId: "{{vars.PLAYER_ACCOUNT_IDENTIFIER}}"
+              partyType: "{{vars.PLAYER_PARTY_TYPE}}"
+              accountCurrency: "{{vars.ACCOUNT_CURRENCY}}"
+            updatedAt:
+              sql: NOW()
+
+  api-wallet:
+    db: api-wallet
+    target: api-wallet
+    tables:
+      Party:
+        upsertBy: [name]
+        rows:
+          - name: "{{vars.PLAYER_USERNAME}}"
+            identifier: "{{vars.PLAYER_PARTY_IDENTIFIER}}"
+            externalReference: "{{vars.PLAYER_EXTERNAL_REFERENCE}}"
+            type: "{{vars.PLAYER_PARTY_TYPE}}"
+            subtype: "{{vars.PLAYER_PARTY_TYPE}}"
+            parentId:
+              ref:
+                table: Party
+                where:
+                  identifier: "{{vars.ROOT_PARTY_IDENTIFIER}}"
+                column: id
+            chain: "{{vars.PLAYER_PARTY_CHAIN}}"
+            status: ACTIVE
+            metadata:
+              origin: api-player
+              information:
+                email: "{{vars.PLAYER_EMAIL}}"
+      Account:
+        upsertBy: [externalReference]
+        rows:
+          - externalReference: "{{vars.PLAYER_EXTERNAL_REFERENCE}}"
+            identifier: "{{vars.PLAYER_ACCOUNT_IDENTIFIER}}"
+            partyId:
+              ref:
+                table: Party
+                where:
+                  identifier: "{{vars.PLAYER_PARTY_IDENTIFIER}}"
+                column: id
+            name: "{{vars.PLAYER_USERNAME}}"
+            chain: "{{vars.PLAYER_ACCOUNT_CHAIN}}"
+            currencyId: "{{vars.ACCOUNT_CURRENCY}}"
+            status: "{{vars.ACCOUNT_STATUS}}"
+            availableBalance: 0
+            depositBalance: 0
+            payoutBalance: 0
+            bonusBalance: 0
+            pendingBalance: 0
+            blockedBalance: 0
+            updatedAt:
+              sql: NOW()
