@@ -1,0 +1,1165 @@
+openapi: 3.1.0
+info:
+  title: API Report - OpenSearch
+  version: 1.1.0
+servers:
+- url: /api-data/api/v1
+paths:
+  /docs-json:
+    get:
+      summary: Download Openapi Json
+      operationId: download_openapi_json_docs_json_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /docs-yaml:
+    get:
+      summary: Download Openapi Yaml
+      operationId: download_openapi_yaml_docs_yaml_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /health:
+    get:
+      tags:
+      - System
+      summary: Health Check
+      operationId: health_check_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /reports/netwin:
+    get:
+      tags:
+      - Reports
+      summary: Get Netwin Report Raw
+      description: 'Retrieves Netwin calculated from RAW operations (Real-time).
+
+
+        Logic:
+
+        * **CoinIn**: Bets + Debit Adjustments
+
+        * **CoinOut**: Wins + Credit Adjustments
+
+        * **Netwin**: CoinIn - CoinOut'
+      operationId: get_netwin_report_raw_reports_netwin_get
+      parameters:
+      - name: date_in
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: Start Date (ISO 8601)
+          title: Date In
+          default: "2026-02-01T00:00:00Z"
+        example: "2026-02-01T00:00:00Z"
+        description: Start Date (ISO 8601)
+      - name: date_out
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: End Date (ISO 8601)
+          title: Date Out
+          default: "2026-02-03T23:59:59Z"
+        example: "2026-02-03T23:59:59Z"
+        description: End Date (ISO 8601)
+      - name: group_by
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/NetwinGroupBy'
+          description: 'Grouping dimension: vertical, integrator, player, organization'
+          default: vertical
+        description: 'Grouping dimension: vertical, integrator, player, organization'
+      - name: chain
+        in: query
+        required: false
+        schema:
+          type: string
+          description: Filter by Organization Chain
+          title: Chain
+        description: Filter by Organization Chain
+      - name: player_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          description: Filter by Player ID
+          title: Player Id
+        description: Filter by Player ID
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetwinReportResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reports/public-funds:
+    get:
+      tags:
+      - Reports
+      summary: Get Public Funds Report
+      description: Retrieves the consolidated Public Funds report.
+      operationId: get_public_funds_report_reports_public_funds_get
+      parameters:
+      - name: organization_chain
+        in: query
+        required: false
+        schema:
+          type: string
+          description: Filter by chain prefix (e.g., 'ROOT-ORG')
+          title: Organization Chain
+        description: Filter by chain prefix (e.g., 'ROOT-ORG')
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicFundsReportResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reports/ip-report:
+    get:
+      tags:
+      - Reports
+      summary: Get Ip Report
+      description: Retrieves a paginated list of player interactions with IP data.
+      operationId: get_ip_report_reports_ip_report_get
+      parameters:
+      - name: date_in
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: Start date (ISO 8601)
+          title: Date In
+          default: "2026-02-01T00:00:00Z"
+        example: "2026-02-01T00:00:00Z"
+        description: Start date (ISO 8601)
+      - name: date_out
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: End date (ISO 8601)
+          title: Date Out
+          default: "2026-02-03T23:59:59Z"
+        example: "2026-02-03T23:59:59Z"
+        description: End date (ISO 8601)
+      - name: player_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          description: Filter by destinationAccountId
+          title: Player Id
+        description: Filter by destinationAccountId
+      - name: ip_address
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by initiatorIpAddress
+          title: Ip Address
+        description: Filter by initiatorIpAddress
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: Page number
+          default: 1
+          title: Page
+        description: Page number
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          description: Items per page
+          default: 100
+          title: Page Size
+        description: Items per page
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IpReportResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reports/user-lifetime-value:
+    get:
+      tags:
+      - Reports
+      summary: Get User Ltv Report
+      description: Calculates the User Lifetime Value (LTV) in real-time.
+      operationId: get_user_ltv_report_reports_user_lifetime_value_get
+      parameters:
+      - name: player_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          description: Player ID (destinationAccountId)
+          title: Player Id
+        description: Player ID (destinationAccountId)
+      - name: date_in
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: Start date (ISO 8601)
+          title: Date In
+          default: "2026-02-01T00:00:00Z"
+        example: "2026-02-01T00:00:00Z"
+        description: Start date (ISO 8601)
+      - name: date_out
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: End date (ISO 8601)
+          title: Date Out
+          default: "2026-02-03T23:59:59Z"
+        example: "2026-02-03T23:59:59Z"
+        description: End date (ISO 8601)
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserLtvResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reports/sports-history:
+    get:
+      tags:
+      - Reports
+      summary: Get Sports History Report
+      description: Retrieves game history filtered specifically for the 'sports' vertical.
+      operationId: get_sports_history_report_reports_sports_history_get
+      parameters:
+      - name: player_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          description: Player ID
+          title: Player Id
+        description: Player ID
+      - name: date_in
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: Start date (ISO 8601)
+          title: Date In
+          default: "2026-02-01T00:00:00Z"
+        example: "2026-02-01T00:00:00Z"
+        description: Start date (ISO 8601)
+      - name: date_out
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: End date (ISO 8601)
+          title: Date Out
+          default: "2026-02-03T23:59:59Z"
+        example: "2026-02-03T23:59:59Z"
+        description: End date (ISO 8601)
+      - name: game_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by game name
+          title: Game Name
+        description: Filter by game name
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          default: 100
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameHistoryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reports/game-history:
+    get:
+      tags:
+      - Reports
+      summary: Get Game History Report
+      description: Retrieves general game history (Casino, Sports, etc).
+      operationId: get_game_history_report_reports_game_history_get
+      parameters:
+      - name: player_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          description: Player ID
+          title: Player Id
+        description: Player ID
+      - name: date_in
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: Start date (ISO 8601)
+          title: Date In
+          default: "2026-02-01T00:00:00Z"
+        example: "2026-02-01T00:00:00Z"
+        description: Start date (ISO 8601)
+      - name: date_out
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: End date (ISO 8601)
+          title: Date Out
+          default: "2026-02-03T23:59:59Z"
+        example: "2026-02-03T23:59:59Z"
+        description: End date (ISO 8601)
+      - name: game_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by game name
+          title: Game Name
+        description: Filter by game name
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          default: 100
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameHistoryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reports/deposits-withdrawals:
+    get:
+      tags:
+      - Reports
+      summary: Get Deposits Withdrawals Report
+      description: Retrieves aggregated daily financial stats (Deposits vs Withdrawals).
+      operationId: get_deposits_withdrawals_report_reports_deposits_withdrawals_get
+      parameters:
+      - name: date_in
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: Start date (ISO 8601)
+          title: Date In
+          default: "2026-02-01T00:00:00Z"
+        example: "2026-02-01T00:00:00Z"
+        description: Start date (ISO 8601)
+      - name: date_out
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: End date (ISO 8601)
+          title: Date Out
+          default: "2026-02-03T23:59:59Z"
+        example: "2026-02-03T23:59:59Z"
+        description: End date (ISO 8601)
+      - name: organization_chain
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by Org Chain
+          title: Organization Chain
+        description: Filter by Org Chain
+      - name: player_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          description: Filter by Player ID
+          title: Player Id
+        description: Filter by Player ID
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialReportResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /loyalty/segmentation:
+    post:
+      summary: Create Loyalty Segmentation
+      description: Triggers a massive segmentation process in the background.
+      operationId: create_loyalty_segmentation_loyalty_segmentation_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoyaltyCampaignRequest'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reports/bonuses:
+    get:
+      tags:
+      - Reports
+      summary: Get Bonus Report
+      description: 'Retrieves the total Bonus Awarded report.
+
+        Calculates the sum of positive increments in bonus balance (After - Before).'
+      operationId: get_bonus_report_reports_bonuses_get
+      parameters:
+      - name: date_in
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: Start date (ISO 8601)
+          title: Date In
+          default: "2026-02-01T00:00:00Z"
+        example: "2026-02-01T00:00:00Z"
+        description: Start date (ISO 8601)
+      - name: date_out
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+          description: End date (ISO 8601)
+          title: Date Out
+          default: "2026-02-03T23:59:59Z"
+        example: "2026-02-03T23:59:59Z"
+        description: End date (ISO 8601)
+      - name: player_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          description: Optional Player ID
+          title: Player Id
+        description: Optional Player ID
+      - name: organization_chain
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional Org Chain
+          title: Organization Chain
+        description: Optional Org Chain
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BonusReportResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    Balances:
+      properties:
+        deposit_balance:
+          type: number
+          title: Deposit Balance
+          default: 0.0
+        winnings_balance:
+          type: number
+          title: Winnings Balance
+          default: 0.0
+        bonus_balance:
+          type: number
+          title: Bonus Balance
+          default: 0.0
+        pending_balance:
+          type: number
+          title: Pending Balance
+          default: 0.0
+        blocked_balance:
+          type: number
+          title: Blocked Balance
+          default: 0.0
+        public_funds_total:
+          type: number
+          title: Public Funds Total
+          default: 0.0
+      type: object
+      title: Balances
+    BonusFilters:
+      properties:
+        player_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Player Id
+        organization_chain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Organization Chain
+      type: object
+      title: BonusFilters
+    BonusReportResponse:
+      properties:
+        time_range:
+          $ref: '#/components/schemas/TimeRange'
+        filters:
+          $ref: '#/components/schemas/BonusFilters'
+        total_bonus_awarded:
+          type: number
+          title: Total Bonus Awarded
+          description: Total value of bonuses given in the period
+        daily_breakdown:
+          items:
+            $ref: '#/components/schemas/DailyBonusItem'
+          type: array
+          title: Daily Breakdown
+      type: object
+      required:
+      - time_range
+      - filters
+      - total_bonus_awarded
+      - daily_breakdown
+      title: BonusReportResponse
+    ChainData:
+      properties:
+        chain:
+          type: string
+          title: Chain
+        account_count:
+          type: integer
+          title: Account Count
+        balances:
+          $ref: '#/components/schemas/Balances'
+      type: object
+      required:
+      - chain
+      - account_count
+      - balances
+      title: ChainData
+    DailyBonusItem:
+      properties:
+        date:
+          type: string
+          title: Date
+        bonus_amount:
+          type: number
+          title: Bonus Amount
+        operations:
+          type: integer
+          title: Operations
+      type: object
+      required:
+      - date
+      - bonus_amount
+      - operations
+      title: DailyBonusItem
+    DailySummary:
+      properties:
+        date:
+          type: string
+          title: Date
+        deposits:
+          $ref: '#/components/schemas/OperationStats'
+        withdrawals:
+          $ref: '#/components/schemas/OperationStats'
+      type: object
+      required:
+      - date
+      - deposits
+      - withdrawals
+      title: DailySummary
+    FinancialFilters:
+      properties:
+        organization_chain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Organization Chain
+        player_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Player Id
+      type: object
+      title: FinancialFilters
+    FinancialReportResponse:
+      properties:
+        time_range:
+          $ref: '#/components/schemas/TimeRange'
+        filters:
+          $ref: '#/components/schemas/FinancialFilters'
+        summary:
+          items:
+            $ref: '#/components/schemas/DailySummary'
+          type: array
+          title: Summary
+      type: object
+      required:
+      - time_range
+      - filters
+      - summary
+      title: FinancialReportResponse
+    GameHistoryItem:
+      properties:
+        timestamp:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Timestamp
+        destinationAccountId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Destinationaccountid
+        game:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Game
+        vertical:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vertical
+        amount:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Amount
+        currency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Currency
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      additionalProperties: true
+      type: object
+      title: GameHistoryItem
+    GameHistoryResponse:
+      properties:
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+        data:
+          items:
+            $ref: '#/components/schemas/GameHistoryItem'
+          type: array
+          title: Data
+      type: object
+      required:
+      - pagination
+      - data
+      title: GameHistoryResponse
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    IpReportItem:
+      properties:
+        timestamp:
+          type: string
+          title: Timestamp
+        destinationAccountId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Destinationaccountid
+        destinationAccountName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Destinationaccountname
+        initiatorIpAddress:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Initiatoripaddress
+        fullChain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fullchain
+        userAgent:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Useragent
+        operationType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Operationtype
+        subtype:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Subtype
+      type: object
+      required:
+      - timestamp
+      title: IpReportItem
+    IpReportResponse:
+      properties:
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+        data:
+          items:
+            $ref: '#/components/schemas/IpReportItem'
+          type: array
+          title: Data
+      type: object
+      required:
+      - pagination
+      - data
+      title: IpReportResponse
+    LoyaltyCampaignRequest:
+      properties:
+        campaign_name:
+          type: string
+          maxLength: 100
+          minLength: 3
+          title: Campaign Name
+          description: Name of the campaign for file tagging
+        date_in:
+          type: string
+          format: date-time
+          title: Date In
+          description: Start date (ISO 8601)
+          default: "2026-02-01T00:00:00Z"
+          example: "2026-02-01T00:00:00Z"
+        date_out:
+          type: string
+          format: date-time
+          title: Date Out
+          description: End date (ISO 8601)
+          default: "2026-02-03T23:59:59Z"
+          example: "2026-02-03T23:59:59Z"
+        metric:
+          $ref: '#/components/schemas/MetricEnum'
+          description: The financial metric to filter by
+        operator:
+          $ref: '#/components/schemas/OperatorEnum'
+          description: Comparison operator (e.g., gt for greater than)
+        value:
+          type: number
+          minimum: 0.0
+          title: Value
+          description: Threshold value
+      type: object
+      required:
+      - campaign_name
+      - date_in
+      - date_out
+      - metric
+      - operator
+      - value
+      title: LoyaltyCampaignRequest
+    LtvMetrics:
+      properties:
+        total_deposited:
+          type: number
+          title: Total Deposited
+          description: Total amount deposited
+          default: 0.0
+        deposit_count:
+          type: integer
+          title: Deposit Count
+          description: Number of deposit transactions
+          default: 0
+        avg_deposit:
+          type: number
+          title: Avg Deposit
+          description: Average deposit amount
+          default: 0.0
+        total_withdrawn:
+          type: number
+          title: Total Withdrawn
+          description: Total amount withdrawn
+          default: 0.0
+        withdrawal_count:
+          type: integer
+          title: Withdrawal Count
+          description: Number of withdrawal transactions
+          default: 0
+        avg_withdrawal:
+          type: number
+          title: Avg Withdrawal
+          description: Average withdrawal amount
+          default: 0.0
+        total_wagered:
+          type: number
+          title: Total Wagered
+          description: Total amount bet/wagered
+          default: 0.0
+        total_won:
+          type: number
+          title: Total Won
+          description: Total amount won (payouts)
+          default: 0.0
+        netwin:
+          type: number
+          title: Netwin
+          description: Net Win (Bets - Payouts)
+          default: 0.0
+      type: object
+      title: LtvMetrics
+    MetricEnum:
+      type: string
+      enum:
+      - total_deposit
+      - total_bet
+      - total_win
+      title: MetricEnum
+    NetwinFilters:
+      properties:
+        chain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Chain
+        player_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Player Id
+      type: object
+      title: NetwinFilters
+    NetwinGroupBy:
+      type: string
+      enum:
+      - vertical
+      - integrator
+      - player
+      - organization
+      title: NetwinGroupBy
+    NetwinReportResponse:
+      properties:
+        time_range:
+          $ref: '#/components/schemas/TimeRange'
+        filters:
+          $ref: '#/components/schemas/NetwinFilters'
+        data:
+          items:
+            $ref: '#/components/schemas/NetwinRow'
+          type: array
+          title: Data
+      type: object
+      required:
+      - time_range
+      - filters
+      - data
+      title: NetwinReportResponse
+    NetwinRow:
+      properties:
+        group_key:
+          type: string
+          title: Group Key
+          description: The value of the grouped field (e.g., 'casino', '10055')
+        group_by:
+          type: string
+          title: Group By
+          description: The dimension used for grouping
+        coin_in:
+          type: number
+          title: Coin In
+          description: Total Debits (Bets)
+        coin_out:
+          type: number
+          title: Coin Out
+          description: Total Credits (Wins)
+        netwin:
+          type: number
+          title: Netwin
+          description: CoinIn - CoinOut
+        operation_count:
+          type: integer
+          title: Operation Count
+      type: object
+      required:
+      - group_key
+      - group_by
+      - coin_in
+      - coin_out
+      - netwin
+      - operation_count
+      title: NetwinRow
+    OperationStats:
+      properties:
+        total_amount:
+          type: number
+          title: Total Amount
+        operation_count:
+          type: integer
+          title: Operation Count
+      type: object
+      required:
+      - total_amount
+      - operation_count
+      title: OperationStats
+    OperatorEnum:
+      type: string
+      enum:
+      - gt
+      - gte
+      - lt
+      - lte
+      - eq
+      title: OperatorEnum
+    PaginationInfo:
+      properties:
+        total_records:
+          type: integer
+          title: Total Records
+        approximated_total_in_db:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Approximated Total In Db
+        total_pages:
+          type: integer
+          title: Total Pages
+        current_page:
+          type: integer
+          title: Current Page
+        page_size:
+          type: integer
+          title: Page Size
+      type: object
+      required:
+      - total_records
+      - total_pages
+      - current_page
+      - page_size
+      title: PaginationInfo
+    PublicFundsReportResponse:
+      properties:
+        report_type:
+          type: string
+          title: Report Type
+          default: public_funds
+        aggregation_level:
+          type: string
+          title: Aggregation Level
+          default: by_chain
+        organization_chain_filter:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Organization Chain Filter
+        chains:
+          items:
+            $ref: '#/components/schemas/ChainData'
+          type: array
+          title: Chains
+          default: []
+      type: object
+      title: PublicFundsReportResponse
+    TaskResponse:
+      properties:
+        code:
+          type: integer
+          title: Code
+        job_id:
+          type: string
+          title: Job Id
+        message:
+          type: string
+          title: Message
+        details:
+          type: string
+          title: Details
+      type: object
+      required:
+      - code
+      - job_id
+      - message
+      - details
+      title: TaskResponse
+    TimeRange:
+      properties:
+        start:
+          type: string
+          title: Start
+        end:
+          type: string
+          title: End
+      type: object
+      required:
+      - start
+      - end
+      title: TimeRange
+    UserLtvResponse:
+      properties:
+        player_id:
+          type: integer
+          title: Player Id
+        time_range:
+          $ref: '#/components/schemas/TimeRange'
+        metrics:
+          $ref: '#/components/schemas/LtvMetrics'
+      type: object
+      required:
+      - player_id
+      - time_range
+      - metrics
+      title: UserLtvResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

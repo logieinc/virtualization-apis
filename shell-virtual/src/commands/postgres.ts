@@ -541,12 +541,33 @@ async function applySchemaFromFile(
 }
 
 type SeedTable = {
+  action?: 'insert' | 'upsert';
   upsertBy?: string[];
   rows?: Record<string, unknown>[];
 };
 
-type SeedYaml = {
+type SeedOperation = {
+  type: 'insert' | 'upsert' | 'update' | 'delete';
+  table: string;
+  rows?: Record<string, unknown>[];
+  upsertBy?: string[];
+  where?: Record<string, unknown>;
+  set?: Record<string, unknown>;
+};
+
+type SeedDatabase = {
+  db?: string;
+  target?: string;
+  variables?: Record<string, unknown>;
   tables?: Record<string, SeedTable>;
+  operations?: SeedOperation[];
+};
+
+type SeedYaml = {
+  variables?: Record<string, unknown>;
+  tables?: Record<string, SeedTable>;
+  operations?: SeedOperation[];
+  databases?: Record<string, SeedDatabase>;
 };
 
 type SeedRef = {
@@ -620,26 +641,101 @@ function buildInsertSql(table: string, row: Record<string, unknown>, upsertBy?: 
   return `${sql} ON CONFLICT (${conflictCols}) DO UPDATE SET ${updateSql};`;
 }
 
-async function applyYamlSeed(
-  runtime: PostgresRuntime,
-  db: string,
-  seedPath: string
-): Promise<void> {
-  const absolute = path.isAbsolute(seedPath) ? seedPath : path.resolve(process.cwd(), seedPath);
-  const contents = await fs.readFile(absolute, 'utf-8');
-  const seed = YAML.parse(contents) as SeedYaml;
-  const tables = seed?.tables;
-  if (!tables || Object.keys(tables).length === 0) {
-    console.info(`No tables found in seed file ${absolute}.`);
-    return;
+function buildWhereSql(table: string, where: Record<string, unknown>): string {
+  const entries = Object.entries(where);
+  if (entries.length === 0) {
+    throw new Error(`Operation on table "${table}" requires a non-empty "where" clause.`);
+  }
+  const predicates = entries.map(([field, value]) => {
+    if (value === null) {
+      return `${quoteIdentifier(field)} IS NULL`;
+    }
+    return `${quoteIdentifier(field)} = ${toSqlValue(value)}`;
+  });
+  return predicates.join(' AND ');
+}
+
+function buildUpdateSql(
+  table: string,
+  set: Record<string, unknown>,
+  where: Record<string, unknown>
+): string {
+  const setEntries = Object.entries(set);
+  if (setEntries.length === 0) {
+    throw new Error(`Update operation for "${table}" requires a non-empty "set" object.`);
+  }
+  const setSql = setEntries.map(([col, value]) => `${quoteIdentifier(col)} = ${toSqlValue(value)}`).join(', ');
+  const whereSql = buildWhereSql(table, where);
+  return `UPDATE ${quoteIdentifier(table)} SET ${setSql} WHERE ${whereSql};`;
+}
+
+function buildDeleteSql(table: string, where: Record<string, unknown>): string {
+  const whereSql = buildWhereSql(table, where);
+  return `DELETE FROM ${quoteIdentifier(table)} WHERE ${whereSql};`;
+}
+
+function resolveVarByPath(variables: Record<string, unknown>, keyPath: string): unknown {
+  return keyPath.split('.').reduce<unknown>((acc, key) => {
+    if (!acc || typeof acc !== 'object') {
+      return undefined;
+    }
+    return (acc as Record<string, unknown>)[key];
+  }, variables);
+}
+
+function applySeedVariables(value: unknown, variables: Record<string, unknown>): unknown {
+  if (typeof value === 'string') {
+    const exactHandlebars = value.match(/^{{\s*vars\.([a-zA-Z0-9_.-]+)\s*}}$/);
+    if (exactHandlebars) {
+      const resolved = resolveVarByPath(variables, exactHandlebars[1]);
+      return resolved !== undefined ? resolved : '';
+    }
+    const exactLegacy = value.match(/^\$\{([a-zA-Z0-9_.-]+)\}$/);
+    if (exactLegacy) {
+      const resolved = resolveVarByPath(variables, exactLegacy[1]);
+      return resolved !== undefined ? resolved : '';
+    }
+    return value
+      .replace(/{{\s*vars\.([a-zA-Z0-9_.-]+)\s*}}/g, (_match, token) => {
+        const resolved = resolveVarByPath(variables, token);
+        return resolved !== undefined ? String(resolved) : '';
+      })
+      .replace(/\$\{([a-zA-Z0-9_.-]+)\}/g, (_match, token) => {
+        const resolved = resolveVarByPath(variables, token);
+        return resolved !== undefined ? String(resolved) : '';
+      });
   }
 
+  if (Array.isArray(value)) {
+    return value.map(item => applySeedVariables(item, variables));
+  }
+
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = applySeedVariables(item, variables);
+    }
+    return result;
+  }
+
+  return value;
+}
+
+async function applyTableSeeds(
+  runtime: PostgresRuntime,
+  db: string,
+  tables: Record<string, SeedTable>
+): Promise<void> {
   for (const [table, config] of Object.entries(tables)) {
     const rows = config?.rows ?? [];
     if (!rows.length) {
       continue;
     }
-    const upsertBy = config?.upsertBy ?? [];
+    const action = config?.action ?? (config?.upsertBy?.length ? 'upsert' : 'insert');
+    if (!['insert', 'upsert'].includes(action)) {
+      throw new Error(`Invalid table action "${action}" in table "${table}". Use insert or upsert.`);
+    }
+    const upsertBy = action === 'upsert' ? config?.upsertBy ?? [] : [];
     console.info(
       `Seeding ${rows.length} row(s) into ${table}${upsertBy.length ? ` (upsert by ${upsertBy.join(', ')})` : ''}...`
     );
@@ -649,7 +745,154 @@ async function applyYamlSeed(
       await runPsqlWithRuntime(runtime, db, sql);
     }
   }
-  console.info('YAML seed completed.');
+}
+
+async function applySeedOperations(
+  runtime: PostgresRuntime,
+  db: string,
+  operations: SeedOperation[]
+): Promise<void> {
+  for (const operation of operations) {
+    if (!operation.table) {
+      throw new Error('Seed operation requires "table".');
+    }
+
+    switch (operation.type) {
+      case 'insert':
+      case 'upsert': {
+        const rows = operation.rows ?? [];
+        if (rows.length === 0) {
+          throw new Error(`Operation "${operation.type}" on ${operation.table} requires "rows".`);
+        }
+        const upsertBy = operation.type === 'upsert' ? operation.upsertBy ?? [] : [];
+        console.info(
+          `${operation.type.toUpperCase()} ${rows.length} row(s) into ${operation.table}${upsertBy.length ? ` (upsert by ${upsertBy.join(', ')})` : ''}...`
+        );
+        for (const row of rows) {
+          const resolvedRow = await resolveSeedRow(runtime, db, row);
+          const sql = buildInsertSql(operation.table, resolvedRow, upsertBy);
+          await runPsqlWithRuntime(runtime, db, sql);
+        }
+        break;
+      }
+      case 'update': {
+        if (!operation.where || !operation.set) {
+          throw new Error(`Operation "update" on ${operation.table} requires "where" and "set".`);
+        }
+        const resolvedWhere = (await resolveSeedRow(runtime, db, operation.where)) as Record<string, unknown>;
+        const resolvedSet = (await resolveSeedRow(runtime, db, operation.set)) as Record<string, unknown>;
+        const sql = buildUpdateSql(operation.table, resolvedSet, resolvedWhere);
+        console.info(`UPDATE ${operation.table}...`);
+        await runPsqlWithRuntime(runtime, db, sql);
+        break;
+      }
+      case 'delete': {
+        if (!operation.where) {
+          throw new Error(`Operation "delete" on ${operation.table} requires "where".`);
+        }
+        const resolvedWhere = (await resolveSeedRow(runtime, db, operation.where)) as Record<string, unknown>;
+        const sql = buildDeleteSql(operation.table, resolvedWhere);
+        console.info(`DELETE ${operation.table}...`);
+        await runPsqlWithRuntime(runtime, db, sql);
+        break;
+      }
+      default:
+        throw new Error(`Unsupported seed operation type "${String((operation as { type?: string }).type)}".`);
+    }
+  }
+}
+
+async function applyYamlSeedForDatabase(
+  runtime: PostgresRuntime,
+  db: string,
+  config: {
+    tables?: Record<string, SeedTable>;
+    operations?: SeedOperation[];
+  },
+  label?: string
+): Promise<void> {
+  const scope = label ? `[${label}] ` : '';
+  const tables = config.tables;
+  const operations = config.operations ?? [];
+  if ((!tables || Object.keys(tables).length === 0) && operations.length === 0) {
+    console.info(`${scope}No tables/operations found for ${db}.`);
+    return;
+  }
+
+  console.info(`${scope}Applying YAML seed to ${db}...`);
+  if (tables && Object.keys(tables).length > 0) {
+    await applyTableSeeds(runtime, db, tables);
+  }
+  if (operations.length > 0) {
+    await applySeedOperations(runtime, db, operations);
+  }
+  console.info(`${scope}YAML seed completed on ${db}.`);
+}
+
+async function applyYamlSeed(options: PostgresSeedYamlOptions): Promise<void> {
+  const defaultDb = options.db ?? 'postgres';
+  const absolute = path.isAbsolute(options.seed) ? options.seed : path.resolve(process.cwd(), options.seed);
+  const contents = await fs.readFile(absolute, 'utf-8');
+  const seed = YAML.parse(contents) as SeedYaml;
+  const globalVariables = seed?.variables ?? {};
+  const hasDefaultPayload =
+    Boolean(seed?.tables && Object.keys(seed.tables).length > 0) ||
+    Boolean(seed?.operations && seed.operations.length > 0);
+  const hasDatabasesPayload = Boolean(seed?.databases && Object.keys(seed.databases).length > 0);
+
+  if (!hasDefaultPayload && !hasDatabasesPayload) {
+    console.info(`No tables/operations/databases found in seed file ${absolute}.`);
+    return;
+  }
+
+  if (hasDefaultPayload) {
+    const runtime = resolvePostgresRuntime(options, defaultDb);
+    const defaultTables = applySeedVariables(seed.tables ?? {}, globalVariables) as Record<string, SeedTable>;
+    const defaultOperations = applySeedVariables(
+      seed.operations ?? [],
+      globalVariables
+    ) as SeedOperation[];
+    await applyYamlSeedForDatabase(
+      runtime,
+      defaultDb,
+      { tables: defaultTables, operations: defaultOperations },
+      'default'
+    );
+  }
+
+  if (hasDatabasesPayload && seed.databases) {
+    for (const [databaseKey, dbConfig] of Object.entries(seed.databases)) {
+      const dbName = dbConfig.db ?? databaseKey;
+      const target = dbConfig.target ?? databaseKey;
+      const runtime = resolvePostgresRuntime(
+        {
+          service: options.service,
+          user: options.user,
+          composeDir: options.composeDir,
+          target
+        },
+        target
+      );
+      const mergedVariables = {
+        ...globalVariables,
+        ...(dbConfig.variables ?? {})
+      };
+      const scopedTables = applySeedVariables(
+        dbConfig.tables ?? {},
+        mergedVariables
+      ) as Record<string, SeedTable>;
+      const scopedOperations = applySeedVariables(
+        dbConfig.operations ?? [],
+        mergedVariables
+      ) as SeedOperation[];
+      await applyYamlSeedForDatabase(
+        runtime,
+        dbName,
+        { tables: scopedTables, operations: scopedOperations },
+        databaseKey
+      );
+    }
+  }
 }
 
 function isSeedRef(value: unknown): value is SeedRef {
@@ -1210,7 +1453,7 @@ export function registerPostgresCommand(program: Command): void {
 
   postgres
     .command('seed-yaml')
-    .summary('Run YAML seed data against a database')
+    .summary('Run YAML seed data against one or many databases')
     .option('-s, --service <name>', 'Docker Compose service name', DEFAULT_SERVICE)
     .option('-u, --user <name>', 'Database user', DEFAULT_USER)
     .option('-d, --db <name>', 'Database name', 'postgres')
@@ -1219,9 +1462,7 @@ export function registerPostgresCommand(program: Command): void {
     .option('--compose-dir <path>', 'Directory with docker-compose.yml', DEFAULT_COMPOSE_DIR)
     .action(async (options: PostgresSeedYamlOptions) => {
       try {
-        const runtime = resolvePostgresRuntime(options, options.db ?? 'postgres');
-        const db = options.db ?? 'postgres';
-        await applyYamlSeed(runtime, db, options.seed);
+        await applyYamlSeed(options);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Error while running YAML seed: ${message}`);

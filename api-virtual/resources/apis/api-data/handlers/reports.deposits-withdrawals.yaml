@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+routes:
+  - operationId: get_deposits_withdrawals_report_reports_deposits_withdrawals_get
+    method: GET
+    path: /reports/deposits-withdrawals
+    response:
+      status: 200
+      bodyTemplate:
+        time_range:
+          start: "{{query.date_in}}"
+          end: "{{query.date_out}}"
+        filters:
+          organization_chain: "{{query.organization_chain}}"
+          player_id: "{{query.player_id}}"
+        summary:
+          - date: "{{query.date_in}}"
+            deposits:
+              total_amount: 1500
+              operation_count: 10
+            withdrawals:
+              total_amount: 400
+              operation_count: 3

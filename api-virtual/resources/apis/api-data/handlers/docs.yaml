@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: download_openapi_json_docs_json_get
+    method: GET
+    path: /docs-json
+    response:
+      status: 200
+      body:
+        ok: true
+        format: json
+        note: Use /__meta/openapi for the current spec.
+
+  - operationId: download_openapi_yaml_docs_yaml_get
+    method: GET
+    path: /docs-yaml
+    response:
+      status: 200
+      body:
+        ok: true
+        format: yaml
+        note: Use /__meta/openapi for the current spec.

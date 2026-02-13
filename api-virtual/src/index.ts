@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { parse as parseYaml } from 'yaml';
 import swaggerUi from 'swagger-ui-express';
+import type { HandlerContext, HandlerFn, HandlerResult } from './handlers/types';
 
 interface HandlerResponse {
   status?: number;
@@ -19,6 +20,7 @@ interface HandlerDefinition {
   method: string;
   path: string;
   response?: HandlerResponse;
+  handler?: string;
 }
 
 interface ApiMetadata {
@@ -48,10 +50,19 @@ interface ResourcesConfig {
 
 const DEFAULT_PORT = Number(process.env.PORT ?? 4000);
 const SWAGGER_ENABLED = (process.env.SWAGGER_ENABLED ?? 'true').toLowerCase() !== 'false';
+const LOG_LEVEL = (process.env.LOG_LEVEL ?? 'info').toLowerCase();
+const TIMING_ENABLED = (process.env.TIMING_ENABLED ?? 'true').toLowerCase() !== 'false';
+const TIMING_LOG = (process.env.TIMING_LOG ?? 'false').toLowerCase() === 'true';
+const TIMING_HEADER = process.env.TIMING_HEADER ?? 'x-virtual-response-time-ms';
+const HOT_RELOAD_ENABLED = (process.env.HOT_RELOAD_ENABLED ?? 'true').toLowerCase() !== 'false';
+const HOT_RELOAD_INTERVAL_MS = Number(process.env.HOT_RELOAD_INTERVAL_MS ?? 2000);
+const VIRTUAL_APIS = parseCsvEnv(process.env.VIRTUAL_APIS);
+const VIRTUAL_APIS_EXCLUDE = parseCsvEnv(process.env.VIRTUAL_APIS_EXCLUDE);
 const resourcesRoot = process.env.VIRTUAL_RESOURCES_DIR
   ? path.resolve(process.env.VIRTUAL_RESOURCES_DIR)
   : path.resolve(__dirname, '..', 'resources');
 const assetsRoot = path.resolve(__dirname, '..', 'public', 'assets');
+const handlersRoot = path.resolve(__dirname, 'handlers');
 const swaggerCss = `
   .swagger-ui .topbar { background: #0f172a; }
   .swagger-ui .topbar .wrapper .link,
@@ -98,44 +109,126 @@ const swaggerCss = `
 
 const app = express();
 app.use(express.json());
-app.use(morgan('dev'));
+app.use(
+  morgan((tokens, req, res) => {
+    const method = tokens.method(req, res);
+    const url = tokens.url(req, res);
+    const status = tokens.status(req, res);
+    const length = tokens.res(req, res, 'content-length') ?? '-';
+    const responseTime = tokens['response-time'](req, res);
+    return `[api-virtual] HTTP ${method} ${url} ${status} ${length} - ${responseTime} ms`;
+  })
+);
 if (fs.existsSync(assetsRoot)) {
   app.use('/assets', express.static(assetsRoot));
 }
 
-const sharedResources = loadResourcesConfig(resourcesRoot);
-const apis = loadVirtualApis(resourcesRoot);
+const logLevelOrder: Record<string, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40,
+  silent: 50
+};
+const currentLogLevel = logLevelOrder[LOG_LEVEL] ?? logLevelOrder.info;
 
-apis.forEach(api => {
-  const router = buildApiRouter(api, sharedResources);
-  app.use(api.basePath, router);
-});
+function log(level: 'debug' | 'info' | 'warn' | 'error', message: string) {
+  if (logLevelOrder[level] < currentLogLevel) {
+    return;
+  }
+  const prefix = `[api-virtual] ${level.toUpperCase()}`;
+  switch (level) {
+    case 'debug':
+    case 'info':
+      console.log(`${prefix} ${message}`);
+      break;
+    case 'warn':
+      console.warn(`${prefix} ${message}`);
+      break;
+    case 'error':
+      console.error(`${prefix} ${message}`);
+      break;
+  }
+}
 
-if (SWAGGER_ENABLED && apis.length > 0) {
-  const urls = apis.map(api => ({
-    url: `${api.basePath}/__meta/openapi`,
-    name: api.name
-  }));
+const handlerCache = new Map<string, HandlerFn>();
+
+if (TIMING_ENABLED || TIMING_LOG) {
+  app.use((req, res, next) => {
+    const start = process.hrtime.bigint();
+    const originalEnd = res.end.bind(res);
+
+    res.end = ((...args: Parameters<Response['end']>) => {
+      const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+      res.locals.responseTimeMs = elapsedMs;
+      if (TIMING_ENABLED && !res.headersSent) {
+        res.setHeader(TIMING_HEADER, elapsedMs.toFixed(2));
+      }
+      return originalEnd(...args);
+    }) as Response['end'];
+
+    res.on('finish', () => {
+      if (!TIMING_LOG) {
+        return;
+      }
+      const elapsedMs =
+        typeof res.locals.responseTimeMs === 'number'
+          ? res.locals.responseTimeMs
+          : Number(process.hrtime.bigint() - start) / 1e6;
+      log(
+        'info',
+        `Timing ${req.method} ${req.originalUrl} ${res.statusCode} ${elapsedMs.toFixed(2)}ms`
+      );
+    });
+
+    next();
+  });
+}
+
+log('info', `Resources root: ${resourcesRoot}`);
+log('info', `Swagger enabled: ${SWAGGER_ENABLED ? 'true' : 'false'}`);
+log('info', `Timing enabled: ${TIMING_ENABLED ? 'true' : 'false'}`);
+log('info', `Timing log: ${TIMING_LOG ? 'true' : 'false'}`);
+log('info', `Hot reload: ${HOT_RELOAD_ENABLED ? 'true' : 'false'}`);
+if (VIRTUAL_APIS.length > 0) {
+  log('info', `API allowlist: ${VIRTUAL_APIS.join(', ')}`);
+}
+if (VIRTUAL_APIS_EXCLUDE.length > 0) {
+  log('info', `API denylist: ${VIRTUAL_APIS_EXCLUDE.join(', ')}`);
+}
+
+let lastResourcesFingerprint = '';
+let currentState = buildAppState();
+let currentRouter = currentState.router;
+
+log('info', `Loaded ${currentState.apis.length} API(s)`);
+
+app.use((req, res, next) => currentRouter(req, res, next));
+
+if (SWAGGER_ENABLED) {
   app.get('/virtual/swagger', (_req, res) => {
     res.redirect('/virtual/apis/ui');
   });
   app.get('/virtual/swagger/ui', (_req, res) => {
     res.redirect('/virtual/apis/ui');
   });
-  app.use(
-    '/virtual/swagger/ui',
-    swaggerUi.serve,
-    swaggerUi.setup(null, {
+  app.use('/virtual/swagger/ui', swaggerUi.serve, (_req, res, next) => {
+    const urls = currentState.apis.map(api => ({
+      url: `${api.basePath}/__meta/openapi`,
+      name: api.name
+    }));
+    const setup = swaggerUi.setup(null, {
       swaggerOptions: { urls },
       customSiteTitle: 'api-virtual swagger',
       customfavIcon: '/assets/logo.svg',
       customCss: swaggerCss
-    })
-  );
+    });
+    return setup(_req, res, next);
+  });
 }
 
 app.get('/virtual/apis', (_req, res) => {
-  const payload = apis.map(api => ({
+  const payload = currentState.apis.map(api => ({
     id: api.id,
     name: api.name,
     description: api.description ?? api.openApi?.info?.description,
@@ -144,13 +237,13 @@ app.get('/virtual/apis', (_req, res) => {
   }));
   res.json({
     apis: payload,
-    resources: Object.keys(sharedResources.resources ?? {}),
+    resources: Object.keys(currentState.sharedResources.resources ?? {}),
     swaggerEnabled: SWAGGER_ENABLED
   });
 });
 
 app.get('/virtual/apis/ui', (_req, res) => {
-  const items = apis
+  const items = currentState.apis
     .map(api => {
       const description = api.description ?? api.openApi?.info?.description ?? '';
       const docsUrl = `${api.basePath}/docs`;
@@ -173,7 +266,7 @@ app.get('/virtual/apis/ui', (_req, res) => {
     })
     .join('');
 
-  const resources = Object.keys(sharedResources.resources ?? {})
+  const resources = Object.keys(currentState.sharedResources.resources ?? {})
     .map(resource => `<span class="pill">${escapeHtml(resource)}</span>`)
     .join('');
 
@@ -255,6 +348,25 @@ app.get('/virtual/apis/ui', (_req, res) => {
   `);
 });
 
+app.post('/virtual/reload', (_req, res) => {
+  const reloaded = reloadResources('manual');
+  res.json({
+    reloaded,
+    apis: currentState.apis.length,
+    resources: Object.keys(currentState.sharedResources.resources ?? {})
+  });
+});
+
+if (HOT_RELOAD_ENABLED) {
+  lastResourcesFingerprint = fingerprintResources(resourcesRoot);
+  setInterval(() => {
+    const nextFingerprint = fingerprintResources(resourcesRoot);
+    if (nextFingerprint !== lastResourcesFingerprint) {
+      reloadResources('watch');
+    }
+  }, HOT_RELOAD_INTERVAL_MS);
+}
+
 app.use((_req, res) => {
   res.status(404).json({ message: 'Not found in api-virtual' });
 });
@@ -262,9 +374,77 @@ app.use((_req, res) => {
 app.listen(DEFAULT_PORT, () => {
   // eslint-disable-next-line no-console
   console.log(
-    `[api-virtual] Serving ${apis.length} API(s) from ${resourcesRoot} on port ${DEFAULT_PORT}`
+    `[api-virtual] Serving ${currentState.apis.length} API(s) from ${resourcesRoot} on port ${DEFAULT_PORT}`
   );
 });
+
+function reloadResources(trigger: 'watch' | 'manual'): boolean {
+  try {
+    const nextState = buildAppState();
+    currentState = nextState;
+    currentRouter = nextState.router;
+    handlerCache.clear();
+    lastResourcesFingerprint = fingerprintResources(resourcesRoot);
+    log('info', `Reloaded resources (${trigger})`);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Reload failed (${trigger}): ${message}`);
+    return false;
+  }
+}
+
+function buildAppState(): {
+  sharedResources: ResourcesConfig;
+  apis: VirtualApi[];
+  router: Router;
+} {
+  const sharedResources = loadResourcesConfig(resourcesRoot);
+  const apis = loadVirtualApis(resourcesRoot);
+  const router = buildApisRouter(apis, sharedResources);
+  return { sharedResources, apis, router };
+}
+
+function buildApisRouter(apis: VirtualApi[], sharedResources: ResourcesConfig): Router {
+  const router = Router();
+  apis.forEach(api => {
+    const apiRouter = buildApiRouter(api, sharedResources);
+    router.use(api.basePath, apiRouter);
+  });
+  return router;
+}
+
+function fingerprintResources(root: string): string {
+  const files = collectYamlFiles(root);
+  return files
+    .map(file => {
+      try {
+        const stat = fs.statSync(file);
+        return `${file}:${stat.mtimeMs}:${stat.size}`;
+      } catch (error) {
+        return '';
+      }
+    })
+    .sort()
+    .join('|');
+}
+
+function collectYamlFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const results: string[] = [];
+  entries.forEach(entry => {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...collectYamlFiles(fullPath));
+    } else if (entry.isFile() && (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml'))) {
+      results.push(fullPath);
+    }
+  });
+  return results;
+}
 
 function buildApiRouter(api: VirtualApi, sharedConfig: ResourcesConfig): Router {
   const router = Router();
@@ -300,6 +480,7 @@ function buildApiRouter(api: VirtualApi, sharedConfig: ResourcesConfig): Router 
   api.handlers.forEach(handler => {
     const method = handler.method.toLowerCase();
     const expressPath = toExpressPath(handler.path);
+    log('debug', `Register ${method.toUpperCase()} ${api.basePath}${expressPath}`);
     const response = handler.response ?? {};
 
     (router as any)[method](expressPath, async (req: Request, res: Response) => {
@@ -307,11 +488,7 @@ function buildApiRouter(api: VirtualApi, sharedConfig: ResourcesConfig): Router 
         await new Promise(resolve => setTimeout(resolve, response.delayMs));
       }
 
-      const status = response.status ?? 200;
-      const headers = response.headers ?? {};
-      Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
-
-      const context = {
+      const context: HandlerContext = {
         params: req.params,
         query: req.query,
         body: req.body,
@@ -321,15 +498,47 @@ function buildApiRouter(api: VirtualApi, sharedConfig: ResourcesConfig): Router 
           randomId: createRandomId(),
           requestId:
             (req.headers['x-request-id'] as string | undefined) ?? createRandomId()
-        }
+        },
+        req,
+        res
       };
+
+      if (handler.handler) {
+        try {
+          const handlerFn = loadHandler(handler.handler);
+          const result = await handlerFn(context);
+          if (res.headersSent || res.writableEnded) {
+            return;
+          }
+          if (result === undefined) {
+            res.status(500).json({ message: 'Handler returned no response' });
+            return;
+          }
+          const normalized = normalizeHandlerResult(result);
+          const status = normalized.status ?? 200;
+          const headers = normalized.headers ?? {};
+          Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
+          sendResponseBody(res, status, normalized.body);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log('error', `Handler failed for ${api.id} ${handler.path}: ${message}`);
+          if (!res.headersSent) {
+            res.status(500).json({ message: 'Handler execution failed', error: message });
+          }
+        }
+        return;
+      }
+
+      const status = response.status ?? 200;
+      const headers = response.headers ?? {};
+      Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
 
       const payload =
         response.bodyTemplate !== undefined
           ? applyTemplate(response.bodyTemplate, context)
           : response.body ?? { ok: true };
 
-      res.status(status).json(payload);
+      sendResponseBody(res, status, payload);
     });
   });
 
@@ -356,55 +565,157 @@ function escapeHtml(input: string) {
 function loadResourcesConfig(root: string): ResourcesConfig {
   const configPath = path.join(root, 'config.yaml');
   if (!fs.existsSync(configPath)) {
+    log('warn', `Resources config not found at ${configPath}`);
     return {};
   }
-  const raw = fs.readFileSync(configPath, 'utf8');
-  return parseYaml(raw) as ResourcesConfig;
+  const parsed = parseYamlFile<ResourcesConfig>(configPath);
+  const keys = Object.keys(parsed.resources ?? {});
+  log('info', `Loaded resources config (${keys.length}) from ${configPath}`);
+  if (keys.length > 0) {
+    log('debug', `Resources keys: ${keys.join(', ')}`);
+  }
+  return parsed;
 }
 
 function loadVirtualApis(root: string): VirtualApi[] {
   const apisDir = path.join(root, 'apis');
   if (!fs.existsSync(apisDir)) {
+    log('warn', `APIs directory not found at ${apisDir}`);
     return [];
   }
 
-  const entries = fs.readdirSync(apisDir, { withFileTypes: true }).filter(dirent =>
+  let entries = fs.readdirSync(apisDir, { withFileTypes: true }).filter(dirent =>
     dirent.isDirectory()
   );
+
+  if (VIRTUAL_APIS.length > 0) {
+    const allowed = new Set(VIRTUAL_APIS);
+    entries = entries.filter(entry => allowed.has(entry.name));
+  }
+  if (VIRTUAL_APIS_EXCLUDE.length > 0) {
+    const denied = new Set(VIRTUAL_APIS_EXCLUDE);
+    entries = entries.filter(entry => !denied.has(entry.name));
+  }
+
+  log('info', `Found ${entries.length} API folder(s) under ${apisDir}`);
 
   return entries.map(entry => {
     const apiId = entry.name;
     const apiDir = path.join(apisDir, apiId);
+    log('debug', `Loading API ${apiId} from ${apiDir}`);
+
     const openApiPath = resolveFirstExisting(apiDir, ['openapi.yaml', 'openapi.yml']);
     if (!openApiPath) {
+      log('error', `Missing openapi.yaml in ${apiDir}`);
       throw new Error(`Missing openapi.yaml in ${apiDir}`);
     }
 
-    const handlersPath = resolveFirstExisting(apiDir, ['handlers.yaml', 'handlers.yml']);
-    if (!handlersPath) {
-      throw new Error(`Missing handlers.yaml in ${apiDir}`);
+    log('debug', `OpenAPI: ${openApiPath}`);
+
+    const openApi = parseYamlFile<any>(openApiPath);
+    const handlersBundle = loadHandlersBundle(apiDir, apiId);
+
+    if (handlersBundle.sources.primary) {
+      log('debug', `Handlers: ${handlersBundle.sources.primary}`);
+    }
+    if (handlersBundle.sources.extras.length > 0) {
+      log('debug', `Extra handlers: ${handlersBundle.sources.extras.join(', ')}`);
     }
 
-    const openApi = parseYaml(fs.readFileSync(openApiPath, 'utf8'));
-    const handlersFile = parseYaml(fs.readFileSync(handlersPath, 'utf8')) as HandlersFile;
-    const basePath = resolveBasePath(apiId, handlersFile.api?.basePath, openApi);
+    const basePath = resolveBasePath(apiId, handlersBundle.api?.basePath, openApi);
     const name =
-      handlersFile.api?.name ??
+      handlersBundle.api?.name ??
       openApi?.info?.title ??
       `Virtual API ${apiId}`;
 
-    const handlers = normalizeHandlers(handlersFile.routes ?? []);
+    const handlers = normalizeHandlers(handlersBundle.routes ?? []);
+
+    log('info', `Loaded ${apiId} (${handlers.length} route(s)) at ${basePath}`);
 
     return {
       id: apiId,
       name,
-      description: handlersFile.api?.description ?? openApi?.info?.description,
+      description: handlersBundle.api?.description ?? openApi?.info?.description,
       basePath,
       openApiPath,
       openApi,
       handlers
     };
   });
+}
+
+function parseCsvEnv(value?: string): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function loadHandlersBundle(apiDir: string, apiId: string): {
+  api?: ApiMetadata;
+  routes: HandlerDefinition[];
+  sources: { primary?: string; extras: string[] };
+} {
+  const handlersPath = resolveFirstExisting(apiDir, ['handlers.yaml', 'handlers.yml']);
+  let handlersFile: HandlersFile | null = null;
+
+  if (handlersPath) {
+    handlersFile = parseYamlFile<HandlersFile>(handlersPath);
+  }
+
+  const handlersDir = path.join(apiDir, 'handlers');
+  const extras: string[] = [];
+  const extraRoutes: HandlerDefinition[] = [];
+
+  if (fs.existsSync(handlersDir)) {
+    const files = fs
+      .readdirSync(handlersDir)
+      .filter(file => file.endsWith('.yaml') || file.endsWith('.yml'))
+      .sort((a, b) => a.localeCompare(b));
+
+    files.forEach(file => {
+      const filePath = path.join(handlersDir, file);
+      const parsed = parseYamlFile<HandlersFile>(filePath);
+      if (parsed.api) {
+        log(
+          'warn',
+          `Ignoring api metadata in ${filePath} (use ${handlersPath ?? 'handlers.yaml'})`
+        );
+      }
+      if (parsed.routes && parsed.routes.length > 0) {
+        extraRoutes.push(...parsed.routes);
+      }
+      extras.push(filePath);
+    });
+  }
+
+  if (!handlersPath && extraRoutes.length === 0) {
+    log('error', `Missing handlers.yaml or handlers/ in ${apiDir}`);
+    throw new Error(`Missing handlers.yaml or handlers/ in ${apiDir}`);
+  }
+
+  return {
+    api: handlersFile?.api,
+    routes: [...(handlersFile?.routes ?? []), ...extraRoutes],
+    sources: {
+      primary: handlersPath ?? undefined,
+      extras
+    }
+  };
+}
+
+function parseYamlFile<T>(filePath: string): T {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return parseYaml(raw) as T;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Failed parsing YAML ${filePath}: ${message}`);
+    throw error;
+  }
 }
 
 function resolveBasePath(apiId: string, explicitBasePath?: string, openApi?: any): string {
@@ -469,4 +780,65 @@ function interpolateString(template: string, context: Record<string, any>): stri
 
 function createRandomId(): string {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function loadHandler(handlerId: string): HandlerFn {
+  const cached = handlerCache.get(handlerId);
+  if (cached) {
+    return cached;
+  }
+  const resolvedPath = resolveHandlerPath(handlerId);
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require(resolvedPath);
+  const handler = mod?.default ?? mod?.handler ?? mod;
+  if (typeof handler !== 'function') {
+    throw new Error(`Handler module ${handlerId} does not export a function`);
+  }
+  handlerCache.set(handlerId, handler as HandlerFn);
+  return handler as HandlerFn;
+}
+
+function resolveHandlerPath(handlerId: string): string {
+  const hasExt = path.extname(handlerId);
+  const candidates = hasExt
+    ? [handlerId]
+    : [
+        `${handlerId}.js`,
+        `${handlerId}.ts`,
+        path.join(handlerId, 'index.js'),
+        path.join(handlerId, 'index.ts')
+      ];
+
+  for (const candidate of candidates) {
+    const fullPath = path.isAbsolute(candidate)
+      ? candidate
+      : path.join(handlersRoot, candidate);
+    if (fs.existsSync(fullPath)) {
+      return fullPath;
+    }
+  }
+
+  throw new Error(`Handler module not found for "${handlerId}" in ${handlersRoot}`);
+}
+
+function normalizeHandlerResult(result: unknown): HandlerResult {
+  if (result && typeof result === 'object') {
+    const maybe = result as HandlerResult;
+    if ('status' in maybe || 'headers' in maybe || 'body' in maybe) {
+      return maybe;
+    }
+  }
+  return { body: result };
+}
+
+function sendResponseBody(res: Response, status: number, body: unknown) {
+  if (body === undefined) {
+    res.status(status).end();
+    return;
+  }
+  if (Buffer.isBuffer(body) || typeof body === 'string') {
+    res.status(status).send(body);
+    return;
+  }
+  res.status(status).json(body);
 }

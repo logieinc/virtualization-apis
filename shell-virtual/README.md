@@ -175,13 +175,14 @@ virt postgres seed --db api_wallet --sql-dir /ruta/sql
 virt postgres seed --db api_wallet --target api_wallet --sql-dir /ruta/sql
 ```
 
-#### 4. Seed YAML (insert/update)
+#### 4. Seed YAML (insert/upsert/update/delete, single o multi DB)
 
 ```bash
 virt postgres seed-yaml --db api_wallet --seed resources/napa/databases/prisma/api-wallet/seed.yaml
+virt postgres seed-yaml --seed resources/napa/databases/prisma/multi-db.seed.example.yaml
 ```
 
-Formato básico:
+Formato básico (compatibilidad actual, una sola DB):
 
 ```yaml
 tables:
@@ -222,6 +223,88 @@ tables:
         updatedAt:
           sql: NOW()
 ```
+
+Variables reutilizables:
+
+```yaml
+variables:
+  ORG_ALIAS: main
+  DEFAULT_STATUS: active
+
+tables:
+  Party:
+    upsertBy: [name]
+    rows:
+      - name: "{{vars.ORG_ALIAS}}"
+        type: organization
+        chain: ""
+
+operations:
+  - type: update
+    table: Account
+    where:
+      externalReference: "{{vars.ORG_ALIAS}}-USD"
+    set:
+      status: "{{vars.DEFAULT_STATUS}}"
+      updatedAt:
+        sql: NOW()
+```
+
+Formato multi base de datos en un solo archivo:
+
+```yaml
+variables:
+  CHAIN: ROOT-ORG
+  BASE_STATUS: active
+
+databases:
+  api_wallet:
+    db: api_wallet
+    target: api_wallet
+    variables:
+      MAIN_ALIAS: wallet-main
+    tables:
+      Party:
+        upsertBy: [name]
+        rows:
+          - name: "{{vars.MAIN_ALIAS}}"
+            type: organization
+            chain: "{{vars.CHAIN}}"
+    operations:
+      - type: update
+        table: Account
+        where:
+          externalReference: "{{vars.MAIN_ALIAS}}-USD"
+        set:
+          status: "{{vars.BASE_STATUS}}"
+      - type: delete
+        table: Account
+        where:
+          externalReference: "{{vars.MAIN_ALIAS}}-LEGACY"
+
+  api_affiliations:
+    db: api_affiliations
+    target: api_affiliations
+    operations:
+      - type: insert
+        table: Currency
+        rows:
+          - id: TEST
+            name: Test Currency
+            symbol: T
+            decimalPrecision: 0.01
+            type: fiat
+            updatedAt:
+              sql: NOW()
+```
+
+Notas:
+- `tables` mantiene el comportamiento tradicional (`insert`/`upsert`).
+- `operations` permite `insert`, `upsert`, `update` y `delete`.
+- `{{vars.X}}` y `${X}` son válidos para interpolar variables.
+- `databases.<key>.db` define el nombre real de la base.
+- `databases.<key>.target` usa la configuración `databases.<target>` de `virt.config.yaml`.
+- `databases.<key>.variables` permite sobrescribir o agregar variables por base.
 
 ---
 

@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: get_netwin_report_raw_reports_netwin_get
+    method: GET
+    path: /reports/netwin
+    handler: api-data/netwin

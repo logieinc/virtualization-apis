@@ -14,10 +14,17 @@ services:
     environment:
       - PORT=4000
       - SWAGGER_ENABLED=true
+      - TIMING_ENABLED=true
+      - TIMING_LOG=true
+      - TIMING_HEADER=x-virtual-response-time-ms
+      - HOT_RELOAD_ENABLED=true
+      - HOT_RELOAD_INTERVAL_MS=2000
 
   postgres:
     image: postgres:15-alpine
     container_name: postgres-virtual
+    networks:
+      - virtualization-shared
     ports:
       - "5433:5432"
     environment:
@@ -78,3 +85,7 @@ volumes:
   postgres_virtual_data:
   redis_virtual_data:
   mongo_virtual_data:
+
+networks:
+  virtualization-shared:
+    name: virtualization-shared

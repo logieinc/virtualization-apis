@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=../handlers.schema.json
+
 api:
   name: Virtual Payments
   basePath: /api-payments/api/v1

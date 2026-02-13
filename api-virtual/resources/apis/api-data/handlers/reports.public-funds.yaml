@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+routes:
+  - operationId: get_public_funds_report_reports_public_funds_get
+    method: GET
+    path: /reports/public-funds
+    response:
+      status: 200
+      bodyTemplate:
+        report_type: public_funds
+        aggregation_level: by_chain
+        organization_chain_filter: "{{query.organization_chain}}"
+        chains:
+          - chain: "{{query.organization_chain}}"
+            account_count: 42
+            balances:
+              deposit_balance: 5000
+              winnings_balance: 1200
+              bonus_balance: 300
+              pending_balance: 50
+              blocked_balance: 10
+              public_funds_total: 6560

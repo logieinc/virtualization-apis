@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+routes:
+  - operationId: get_sports_history_report_reports_sports_history_get
+    method: GET
+    path: /reports/sports-history
+    response:
+      status: 200
+      bodyTemplate:
+        pagination:
+          total_records: 1
+          total_pages: 1
+          current_page: 1
+          page_size: 100
+        data:
+          - timestamp: "{{meta.now}}"
+            destinationAccountId: "{{query.player_id}}"
+            game: "{{query.game_name}}"
+            vertical: sports
+            amount: 50
+            currency: USD
+            status: settled

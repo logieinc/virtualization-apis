@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+routes:
+  - operationId: get_bonus_report_reports_bonuses_get
+    method: GET
+    path: /reports/bonuses
+    response:
+      status: 200
+      bodyTemplate:
+        time_range:
+          start: "{{query.date_in}}"
+          end: "{{query.date_out}}"
+        filters:
+          player_id: "{{query.player_id}}"
+          organization_chain: "{{query.organization_chain}}"
+        total_bonus_awarded: 250
+        daily_breakdown:
+          - date: "{{query.date_in}}"
+            bonus_amount: 100
+            operations: 2
+          - date: "{{query.date_out}}"
+            bonus_amount: 150
+            operations: 3

@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+routes:
+  - operationId: health_check_health_get
+    method: GET
+    path: /health
+    response:
+      status: 200
+      bodyTemplate:
+        status: ok
+        now: "{{meta.now}}"

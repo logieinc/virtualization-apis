@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../handlers.schema.json
+
+api:
+  name: API Report - OpenSearch
+  basePath: /api-data/api/v1
+  description: Basic mock handlers generated from OpenAPI.
+
+routes: []

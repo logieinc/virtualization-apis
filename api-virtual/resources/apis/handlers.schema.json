@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "api-virtual handlers",
+  "type": "object",
+  "properties": {
+    "api": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "basePath": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "operationId": { "type": "string" },
+          "summary": { "type": "string" },
+          "method": { "type": "string" },
+          "path": { "type": "string" },
+          "handler": { "type": "string" },
+          "response": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "integer" },
+              "headers": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "body": {},
+              "bodyTemplate": {},
+              "delayMs": { "type": "integer" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": ["method", "path"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["routes"],
+  "additionalProperties": false
+}

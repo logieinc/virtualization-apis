@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+routes:
+  - operationId: get_user_ltv_report_reports_user_lifetime_value_get
+    method: GET
+    path: /reports/user-lifetime-value
+    response:
+      status: 200
+      bodyTemplate:
+        player_id: "{{query.player_id}}"
+        time_range:
+          start: "{{query.date_in}}"
+          end: "{{query.date_out}}"
+        metrics:
+          total_deposited: 1200
+          deposit_count: 6
+          avg_deposit: 200
+          total_withdrawn: 300
+          withdrawal_count: 2
+          avg_withdrawal: 150
+          total_wagered: 2500
+          total_won: 2100
+          netwin: 400

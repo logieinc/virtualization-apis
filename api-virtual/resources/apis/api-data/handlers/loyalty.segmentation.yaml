@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+routes:
+  - operationId: create_loyalty_segmentation_loyalty_segmentation_post
+    method: POST
+    path: /loyalty/segmentation
+    response:
+      status: 202
+      bodyTemplate:
+        code: 202
+        job_id: "{{meta.requestId}}"
+        message: Segmentation queued
+        details: "Campaign {{body.campaign_name}}"
