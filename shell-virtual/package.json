@@ -5,6 +5,7 @@
   "description": "CLI for testing and driving virtual APIs",
   "bin": {
     "shell-virtual": "dist/index.js",
+    "vir": "dist/index.js",
     "virt": "dist/index.js"
   },
   "scripts": {

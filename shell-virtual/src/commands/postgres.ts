@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 import YAML from 'yaml';
 
 import { resolveEnvironment } from '../config';
@@ -55,6 +57,16 @@ const POSTGRES_SEEDS_ROOT = path.join(SEEDS_ROOT, 'postgres');
 
 function resolveSeedPath(...segments: string[]): string {
   return path.join(POSTGRES_SEEDS_ROOT, ...segments);
+}
+
+async function confirmAction(message: string, token = 'DELETE'): Promise<boolean> {
+  const rl = readline.createInterface({ input, output });
+  try {
+    const answer = await rl.question(`${message} Type "${token}" to confirm: `);
+    return answer.trim() === token;
+  } finally {
+    rl.close();
+  }
 }
 
 type PostgresRuntime = {
@@ -1199,7 +1211,7 @@ export function registerPostgresCommand(program: Command): void {
     .option('-a, --admin-db <name>', 'Admin database name', DEFAULT_ADMIN_DB)
     .option('-t, --target <name>', 'Database target from config (overrides postgres settings)')
     .option('--drop', 'Drop database before creating it', false)
-    .option('-y, --yes', 'Skip confirmation for destructive actions', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt for drop action', false)
     .option('--schema-dir <path>', 'Directory with .sql or .prisma files to apply')
     .option('--schema-file <path>', 'Single .sql or .prisma file to apply')
     .option('--compose-dir <path>', 'Directory with docker-compose.yml', DEFAULT_COMPOSE_DIR)
@@ -1208,7 +1220,13 @@ export function registerPostgresCommand(program: Command): void {
         const runtime = resolvePostgresRuntime(options, name);
 
         if (options.drop && !options.yes) {
-          throw new Error('Use --yes to confirm dropping the database.');
+          const ok = await confirmAction(
+            `Drop database "${name}" before create? This cannot be undone.`
+          );
+          if (!ok) {
+            console.info('Aborted.');
+            return;
+          }
         }
 
         if (runtime.mode === 'direct') {
@@ -1338,14 +1356,18 @@ export function registerPostgresCommand(program: Command): void {
     .option('-u, --user <name>', 'Database user', DEFAULT_USER)
     .option('-a, --admin-db <name>', 'Admin database name', DEFAULT_ADMIN_DB)
     .option('-t, --target <name>', 'Database target from config (overrides postgres settings)')
-    .option('-y, --yes', 'Skip confirmation for destructive actions', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt', false)
     .option('--compose-dir <path>', 'Directory with docker-compose.yml', DEFAULT_COMPOSE_DIR)
     .action(async (name: string, options: PostgresDropDbOptions) => {
       try {
         const runtime = resolvePostgresRuntime(options, name);
 
         if (!options.yes) {
-          throw new Error('Use --yes to confirm dropping the database.');
+          const ok = await confirmAction(`Drop database "${name}"? This cannot be undone.`);
+          if (!ok) {
+            console.info('Aborted.');
+            return;
+          }
         }
 
         if (runtime.mode === 'direct') {
@@ -1430,14 +1452,20 @@ export function registerPostgresCommand(program: Command): void {
     .option('-u, --user <name>', 'Database user', DEFAULT_USER)
     .option('-a, --admin-db <name>', 'Admin database name', DEFAULT_ADMIN_DB)
     .option('-t, --target <name>', 'Database target from config (overrides postgres settings)')
-    .option('-y, --yes', 'Skip confirmation for destructive actions', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt', false)
     .option('--compose-dir <path>', 'Directory with docker-compose.yml', DEFAULT_COMPOSE_DIR)
     .action(async (name: string, options: PostgresCleanDbOptions) => {
       try {
         const runtime = resolvePostgresRuntime(options, name);
 
         if (!options.yes) {
-          throw new Error('Use --yes to confirm cleaning all database data.');
+          const ok = await confirmAction(
+            `Clean database "${name}" (truncate all tables)? This cannot be undone.`
+          );
+          if (!ok) {
+            console.info('Aborted.');
+            return;
+          }
         }
 
         if (runtime.mode === 'direct') {

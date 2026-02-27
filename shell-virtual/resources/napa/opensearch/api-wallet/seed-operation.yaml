@@ -1,0 +1,77 @@
+variables:
+  INDEX_NAME: operations-2025-12
+  ROUTING: 9YgX
+  CHAIN: 9YgX-cmfy980u800obbinrwzsr7uxv
+  FULL_CHAIN: 9YgX-cmfy980u800obbinrwzsr7uxv-cmige5eyt0003js2orkhazgfw
+  ROUND_REFERENCE: 801519578000_vs20fruitsw_pp
+  DESTINATION_PARTY_IDENTIFIER: cmllbf2kf02hz1m67acd02k4v
+  DESTINATION_ACCOUNT_IDENTIFIER: cmige5ezr0004js2ovnzcb4xu
+  DESTINATION_ACCOUNT_NAME: mponce12
+  ORIGIN: Pragmatic Module
+  INTEGRATOR: pragmatic_play
+  PROVIDER: Pragmatic Play
+  BRAND: Pragmatic Play
+  GAME: vs20fruitsw
+  TRANSACTION_STATUS: COMPLETED
+  DESTINATION_PARTY_TYPE: person
+
+documents:
+  - _id: cmit52uv202hnjpiqsvrq46ha
+    _routing: "{{vars.ROUTING}}"
+    _index: "{{vars.INDEX_NAME}}"
+    amount: 10
+    longAmount: 1000
+    operationType: DEBIT
+    subtype: bet
+    status: COMPLETED
+    timestamp: "{{now}}"
+    externalReference: "{{vars.ROUND_REFERENCE}}"
+    stageReference: "{{vars.ROUND_REFERENCE}}"
+    comment: ""
+    sourceAccountId: 0
+    destinationAccountId: 2692
+    metadata:
+      hash: "339d90942b4972ec0a43a9ab0ff5bc1c"
+      amount: "10.0"
+      gameId: "{{vars.GAME}}"
+      userId: "{{vars.DESTINATION_PARTY_IDENTIFIER}}"
+      roundId: "801519578000"
+      reference: "6933165e661ed24734edd0be"
+      timestamp: "1764955742367"
+      providerId: PragmaticPlay
+      roundDetails: spin
+    vertical: casino
+    game: "{{vars.GAME}}"
+    origin: "{{vars.ORIGIN}}"
+    integrator: "{{vars.INTEGRATOR}}"
+    provider: "{{vars.PROVIDER}}"
+    brand: "{{vars.BRAND}}"
+    chain: "{{vars.CHAIN}}"
+    availableBalanceBefore: 9163
+    depositBalanceBefore: 2330
+    payoutBalanceBefore: 6833
+    bonusBalanceBefore: 0
+    pendingBalanceBefore: 0
+    blockedBalanceBefore: 0
+    availableBalanceAfter: 9153
+    depositBalanceAfter: 2320
+    payoutBalanceAfter: 6833
+    bonusBalanceAfter: 0
+    pendingBalanceAfter: 0
+    blockedBalanceAfter: 0
+    createdAt: "{{now}}"
+    updatedAt: "{{now+5ms}}"
+    createdBy: 1
+    identifier: cmit52uv202hnjpiqsvrq46ha
+    direction: ""
+    gameCategory: ""
+    gameName: ""
+    fullChain: "{{vars.FULL_CHAIN}}"
+    operationId: 3923
+    sourcePartyId: null
+    destinationPartyId: 4101
+    destinationPartyIdentifier: "{{vars.DESTINATION_PARTY_IDENTIFIER}}"
+    destinationAccountIdentifier: "{{vars.DESTINATION_ACCOUNT_IDENTIFIER}}"
+    destinationAccountName: "{{vars.DESTINATION_ACCOUNT_NAME}}"
+    transactionStatus: "{{vars.TRANSACTION_STATUS}}"
+    destinationPartyType: "{{vars.DESTINATION_PARTY_TYPE}}"

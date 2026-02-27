@@ -71,6 +71,11 @@ type OpensearchDeleteOptions = OpensearchBaseOptions & {
   yes?: boolean;
 };
 
+type OpensearchDeleteAllIndicesOptions = OpensearchBaseOptions & {
+  yes?: boolean;
+  includeSystem?: boolean;
+};
+
 type OpensearchExportOptions = OpensearchBaseOptions & {
   mappings?: boolean;
   settings?: boolean;
@@ -78,11 +83,11 @@ type OpensearchExportOptions = OpensearchBaseOptions & {
   output?: string;
 };
 
-async function confirmAction(message: string): Promise<boolean> {
+async function confirmAction(message: string, token = 'DELETE'): Promise<boolean> {
   const rl = readline.createInterface({ input, output });
   try {
-    const answer = await rl.question(`${message} (y/N) `);
-    return answer.trim().toLowerCase() === 'y';
+    const answer = await rl.question(`${message} Type "${token}" to confirm: `);
+    return answer.trim() === token;
   } finally {
     rl.close();
   }
@@ -118,23 +123,226 @@ function buildAuthConfig() {
   };
 }
 
-function buildBulkPayload(
-  docs: unknown[] | Record<string, unknown>,
-  index?: string
-): { payload: string; count: number } {
-  if (!index) {
-    throw new Error('Missing required --index for JSON/YAML inputs.');
+function extractHttpErrorDetail(error: unknown): string | undefined {
+  if (!axios.isAxiosError(error)) {
+    return undefined;
+  }
+  const data = error.response?.data;
+  if (!data) {
+    return undefined;
+  }
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (typeof data === 'object') {
+    const root = data as Record<string, any>;
+    const reason =
+      root?.error?.reason ??
+      root?.error?.root_cause?.[0]?.reason ??
+      root?.message;
+    if (reason) {
+      return String(reason);
+    }
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function resolveVarByPath(variables: Record<string, unknown>, keyPath: string): unknown {
+  return keyPath.split('.').reduce<unknown>((acc, key) => {
+    if (!acc || typeof acc !== 'object') {
+      return undefined;
+    }
+    return (acc as Record<string, unknown>)[key];
+  }, variables);
+}
+
+function resolveNowExpression(expression: string, baseNow: Date): string | undefined {
+  const trimmed = expression.trim();
+  const match = trimmed.match(/^now(?:([+-])(\d+)(ms|s|m|h|d))?$/);
+  if (!match) {
+    return undefined;
   }
 
-  const list = Array.isArray(docs) ? docs : [docs];
+  const sign = match[1];
+  const amountRaw = match[2];
+  const unit = match[3] as 'ms' | 's' | 'm' | 'h' | 'd' | undefined;
+  let offsetMs = 0;
+
+  if (sign && amountRaw && unit) {
+    const amount = Number(amountRaw);
+    const unitMs =
+      unit === 'ms'
+        ? 1
+        : unit === 's'
+          ? 1000
+          : unit === 'm'
+            ? 60_000
+            : unit === 'h'
+              ? 3_600_000
+              : 86_400_000;
+    offsetMs = amount * unitMs * (sign === '-' ? -1 : 1);
+  }
+
+  return new Date(baseNow.getTime() + offsetMs).toISOString();
+}
+
+function applySeedVariables(
+  value: unknown,
+  variables: Record<string, unknown>,
+  context: { now: Date }
+): unknown {
+  if (typeof value === 'string') {
+    const exactNow = value.match(/^{{\s*(now(?:[+-]\d+(?:ms|s|m|h|d))?)\s*}}$/);
+    if (exactNow) {
+      const resolvedNow = resolveNowExpression(exactNow[1], context.now);
+      return resolvedNow ?? '';
+    }
+
+    const exactHandlebars = value.match(/^{{\s*vars\.([a-zA-Z0-9_.-]+)\s*}}$/);
+    if (exactHandlebars) {
+      const resolved = resolveVarByPath(variables, exactHandlebars[1]);
+      return resolved !== undefined ? resolved : '';
+    }
+    const exactLegacy = value.match(/^\$\{([a-zA-Z0-9_.-]+)\}$/);
+    if (exactLegacy) {
+      const resolved = resolveVarByPath(variables, exactLegacy[1]);
+      return resolved !== undefined ? resolved : '';
+    }
+    return value
+      .replace(/{{\s*(now(?:[+-]\d+(?:ms|s|m|h|d))?)\s*}}/g, (_match, expression) => {
+        const resolvedNow = resolveNowExpression(expression, context.now);
+        return resolvedNow ?? '';
+      })
+      .replace(/{{\s*vars\.([a-zA-Z0-9_.-]+)\s*}}/g, (_match, token) => {
+        const resolved = resolveVarByPath(variables, token);
+        return resolved !== undefined ? String(resolved) : '';
+      })
+      .replace(/\$\{([a-zA-Z0-9_.-]+)\}/g, (_match, token) => {
+        const resolved = resolveVarByPath(variables, token);
+        return resolved !== undefined ? String(resolved) : '';
+      });
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item => applySeedVariables(item, variables, context));
+  }
+
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = applySeedVariables(item, variables, context);
+    }
+    return result;
+  }
+
+  return value;
+}
+
+function normalizeSeedDocuments(payload: unknown): Record<string, unknown>[] {
+  if (Array.isArray(payload)) {
+    return payload.map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new Error(`Invalid document at position ${index}. Expected an object.`);
+      }
+      return item as Record<string, unknown>;
+    });
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Input must be an object or array of objects.');
+  }
+
+  const root = payload as Record<string, unknown>;
+  const hasVariables = Object.prototype.hasOwnProperty.call(root, 'variables');
+  const hasDocuments = Array.isArray(root.documents);
+  const hasRows = Array.isArray(root.rows);
+
+  if (hasVariables || hasDocuments || hasRows) {
+    if (!hasDocuments && !hasRows) {
+      throw new Error('When using "variables", provide documents in "documents" or "rows".');
+    }
+
+    const rawVariables = root.variables;
+    const variables =
+      rawVariables && typeof rawVariables === 'object' && !Array.isArray(rawVariables)
+        ? (rawVariables as Record<string, unknown>)
+        : {};
+    const source = (hasDocuments ? root.documents : root.rows) as unknown[];
+    const resolved = applySeedVariables(source, variables, { now: new Date() });
+    if (!Array.isArray(resolved)) {
+      throw new Error('Resolved seed documents must be an array.');
+    }
+    return resolved.map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new Error(`Invalid document at position ${index}. Expected an object.`);
+      }
+      return item as Record<string, unknown>;
+    });
+  }
+
+  return [root];
+}
+
+function buildBulkMetaAndSource(
+  doc: Record<string, unknown>,
+  defaultIndex?: string
+): { meta: Record<string, unknown>; source: Record<string, unknown> } {
+  const source = { ...doc };
+  const meta: Record<string, unknown> = {};
+
+  if (source._meta && typeof source._meta === 'object' && !Array.isArray(source._meta)) {
+    Object.assign(meta, source._meta as Record<string, unknown>);
+    delete source._meta;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(meta, '_routing') && !Object.prototype.hasOwnProperty.call(meta, 'routing')) {
+    meta.routing = meta._routing;
+    delete meta._routing;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, '_id')) {
+    meta._id = source._id;
+    delete source._id;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, '_routing')) {
+    meta.routing = source._routing;
+    delete source._routing;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'routing')) {
+    meta.routing = source.routing;
+    delete source.routing;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, '_index')) {
+    meta._index = source._index;
+    delete source._index;
+  }
+
+  if (!meta._index) {
+    if (!defaultIndex) {
+      throw new Error('Missing required --index for JSON/YAML inputs.');
+    }
+    meta._index = defaultIndex;
+  }
+
+  return { meta, source };
+}
+
+function buildBulkPayload(
+  docs: unknown,
+  index?: string
+): { payload: string; count: number } {
+  const list = normalizeSeedDocuments(docs);
   const lines: string[] = [];
 
   for (const item of list) {
-    if (!item || typeof item !== 'object') {
-      throw new Error('Each document must be an object.');
-    }
-    lines.push(JSON.stringify({ index: { _index: index } }));
-    lines.push(JSON.stringify(item));
+    const { meta, source } = buildBulkMetaAndSource(item, index);
+    lines.push(JSON.stringify({ index: meta }));
+    lines.push(JSON.stringify(source));
   }
 
   return { payload: `${lines.join('\n')}\n`, count: list.length };
@@ -337,7 +545,9 @@ export function registerOpensearchCommand(program: Command): void {
         console.table(response.data);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`Error while loading OpenSearch file: ${message}`);
+        const detail = extractHttpErrorDetail(error);
+        const suffix = detail ? ` | ${detail}` : '';
+        console.error(`Error while loading OpenSearch file: ${message}${suffix}`);
         process.exitCode = 1;
       }
     });
@@ -625,7 +835,7 @@ export function registerOpensearchCommand(program: Command): void {
     .command('delete <index> <id>')
     .description('Delete a document by id from an OpenSearch index.')
     .option('-e, --endpoint <url>', 'OpenSearch base URL', DEFAULT_OPENSEARCH_URL)
-    .option('-y, --yes', 'Skip confirmation prompt', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt', false)
     .action(async (index: string, id: string, options: OpensearchDeleteOptions) => {
       try {
         if (!options.yes) {
@@ -651,7 +861,7 @@ export function registerOpensearchCommand(program: Command): void {
     .command('delete-all <index>')
     .description('Delete all documents from an OpenSearch index (delete by query).')
     .option('-e, --endpoint <url>', 'OpenSearch base URL', DEFAULT_OPENSEARCH_URL)
-    .option('-y, --yes', 'Skip confirmation prompt', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt', false)
     .action(async (index: string, options: OpensearchDeleteOptions) => {
       try {
         if (!options.yes) {
@@ -678,6 +888,72 @@ export function registerOpensearchCommand(program: Command): void {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Error while deleting OpenSearch documents: ${message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  opensearch
+    .command('delete-all-indices')
+    .description('Delete all documents from all indices (delete by query on each index).')
+    .option('-e, --endpoint <url>', 'OpenSearch base URL', DEFAULT_OPENSEARCH_URL)
+    .option('--include-system', 'Include system indices (starting with ".")', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt', false)
+    .action(async (options: OpensearchDeleteAllIndicesOptions) => {
+      try {
+        const base = resolveEndpoint(options.endpoint).replace(/\/$/, '');
+        const response = await axios.get(`${base}/_cat/indices?format=json&h=index`, buildAuthConfig());
+        const rawIndices = Array.isArray(response.data) ? response.data : [];
+        const indices = rawIndices
+          .map((row: Record<string, unknown>) => String(row.index ?? '').trim())
+          .filter(Boolean)
+          .filter(name => (options.includeSystem ? true : !name.startsWith('.')));
+
+        if (indices.length === 0) {
+          console.info('No indices found to clean.');
+          return;
+        }
+
+        if (!options.yes) {
+          const ok = await confirmAction(
+            `Delete ALL documents from ${indices.length} index(es)? This cannot be undone.`
+          );
+          if (!ok) {
+            console.info('Aborted.');
+            return;
+          }
+        }
+
+        const rows: Array<Record<string, unknown>> = [];
+        let totalDeleted = 0;
+
+        for (const index of indices) {
+          const url = `${base}/${encodeURIComponent(index)}/_delete_by_query`;
+          const deleteResponse = await axios.post(
+            url,
+            { query: { match_all: {} } },
+            {
+              headers: { 'content-type': 'application/json' },
+              ...buildAuthConfig()
+            }
+          );
+          const data = deleteResponse.data as Record<string, unknown>;
+          const deleted = Number(data.deleted ?? 0);
+          totalDeleted += Number.isFinite(deleted) ? deleted : 0;
+          rows.push({
+            index,
+            deleted,
+            took: data.took ?? '',
+            timed_out: data.timed_out ?? false
+          });
+        }
+
+        console.info(`Deleted ${totalDeleted} document(s) across ${indices.length} index(es).`);
+        console.table(rows);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const detail = extractHttpErrorDetail(error);
+        const suffix = detail ? ` | ${detail}` : '';
+        console.error(`Error while deleting OpenSearch documents across indices: ${message}${suffix}`);
         process.exitCode = 1;
       }
     });

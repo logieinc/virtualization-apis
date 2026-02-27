@@ -1,0 +1,113 @@
+mappings:
+  properties:
+    amount:
+      type: long
+    longAmount:
+      type: long
+    operationType:
+      type: keyword
+    subtype:
+      type: keyword
+    status:
+      type: keyword
+    timestamp:
+      type: date
+    externalReference:
+      type: keyword
+    stageReference:
+      type: keyword
+    comment:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    sourceAccountId:
+      type: long
+    destinationAccountId:
+      type: long
+    metadata:
+      type: object
+      enabled: true
+    vertical:
+      type: keyword
+    game:
+      type: keyword
+    origin:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    integrator:
+      type: keyword
+    provider:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    brand:
+      type: text
+      fields:
+        keyword:
+          type: keyword
+          ignore_above: 256
+    chain:
+      type: keyword
+    fullChain:
+      type: keyword
+    availableBalanceBefore:
+      type: long
+    depositBalanceBefore:
+      type: long
+    payoutBalanceBefore:
+      type: long
+    bonusBalanceBefore:
+      type: long
+    pendingBalanceBefore:
+      type: long
+    blockedBalanceBefore:
+      type: long
+    availableBalanceAfter:
+      type: long
+    depositBalanceAfter:
+      type: long
+    payoutBalanceAfter:
+      type: long
+    bonusBalanceAfter:
+      type: long
+    pendingBalanceAfter:
+      type: long
+    blockedBalanceAfter:
+      type: long
+    createdAt:
+      type: date
+    updatedAt:
+      type: date
+    createdBy:
+      type: integer
+    identifier:
+      type: keyword
+    direction:
+      type: keyword
+    gameCategory:
+      type: keyword
+    gameName:
+      type: keyword
+    operationId:
+      type: long
+    sourcePartyId:
+      type: long
+    destinationPartyId:
+      type: long
+    destinationPartyIdentifier:
+      type: keyword
+    destinationAccountIdentifier:
+      type: keyword
+    destinationAccountName:
+      type: keyword
+    transactionStatus:
+      type: keyword
+    destinationPartyType:
+      type: keyword

@@ -32,6 +32,10 @@ type MongoDeleteOptions = MongoBaseOptions & {
   filter?: string;
 };
 
+type MongoDeleteAllOptions = MongoBaseOptions & {
+  includeSystem?: boolean;
+};
+
 type MongoExportOptions = MongoBaseOptions & {
   filter?: string;
   limit?: number;
@@ -53,11 +57,11 @@ function resolveMongoOptions(options: MongoBaseOptions): { uri: string; db: stri
   };
 }
 
-async function confirmAction(message: string): Promise<boolean> {
+async function confirmAction(message: string, token = 'DELETE'): Promise<boolean> {
   const rl = readline.createInterface({ input, output });
   try {
-    const answer = await rl.question(`${message} (y/N) `);
-    return answer.trim().toLowerCase() === 'y';
+    const answer = await rl.question(`${message} Type "${token}" to confirm: `);
+    return answer.trim() === token;
   } finally {
     rl.close();
   }
@@ -220,7 +224,7 @@ export function registerMongoCommand(program: Command): void {
     .option('-u, --uri <uri>', 'Mongo connection URI')
     .option('-d, --db <name>', 'Database name')
     .option('-f, --filter <file>', 'JSON/YAML filter file')
-    .option('-y, --yes', 'Skip confirmation prompt', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt', false)
     .action(async (collection: string, id: string | undefined, options: MongoDeleteOptions) => {
       try {
         if (!id && !options.filter) {
@@ -252,6 +256,58 @@ export function registerMongoCommand(program: Command): void {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Error while deleting Mongo documents: ${message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  mongo
+    .command('delete-all')
+    .description('Delete all documents from all collections in a database.')
+    .option('-u, --uri <uri>', 'Mongo connection URI')
+    .option('-d, --db <name>', 'Database name')
+    .option('--include-system', 'Include system collections (starting with "system.")', false)
+    .option('-y, --yes', 'Skip DELETE confirmation prompt', false)
+    .action(async (options: MongoDeleteAllOptions) => {
+      try {
+        const resolved = resolveMongoOptions(options);
+        await withMongoClient(resolved.uri, resolved.db, async db => {
+          const collections = await db.listCollections().toArray();
+          const targets = collections
+            .map(item => item.name)
+            .filter(name => (options.includeSystem ? true : !name.startsWith('system.')));
+
+          if (targets.length === 0) {
+            console.info(`No collections found to clean in "${resolved.db}".`);
+            return;
+          }
+
+          if (!options.yes) {
+            const ok = await confirmAction(
+              `Delete ALL documents from ${targets.length} collection(s) in "${resolved.db}"? This cannot be undone.`
+            );
+            if (!ok) {
+              console.info('Aborted.');
+              return;
+            }
+          }
+
+          let totalDeleted = 0;
+          const rows: Array<Record<string, unknown>> = [];
+          for (const collectionName of targets) {
+            const result = await db.collection(collectionName).deleteMany({});
+            const deleted = result.deletedCount ?? 0;
+            totalDeleted += deleted;
+            rows.push({ collection: collectionName, deleted });
+          }
+
+          console.info(
+            `Deleted ${totalDeleted} document(s) across ${targets.length} collection(s) in "${resolved.db}".`
+          );
+          console.table(rows);
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Error while deleting all Mongo documents: ${message}`);
         process.exitCode = 1;
       }
     });

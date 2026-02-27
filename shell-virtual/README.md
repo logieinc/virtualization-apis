@@ -19,7 +19,7 @@ npm install
 # Compilar los archivos TypeScript a dist/
 npm run build
 
-# Registrar el binario localmente. Esto expone dos comandos: `shell-virtual` y el alias corto `virt`.
+# Registrar el binario localmente. Esto expone tres comandos: `shell-virtual`, `vir` (alias corto) y `virt` (compatibilidad).
 npm link
 ```
 
@@ -45,48 +45,61 @@ Si definís `databases.<nombre>`, podés elegir el destino con `--target <nombre
 Una vez enlazado (`npm link`), usá el alias corto:
 
 ```bash
-virt <comando> [opciones]
+vir <comando> [opciones]
 ```
 
 ### Comandos MongoDB
 
 ```bash
-virt mongo <comando> [opciones]
+vir mongo <comando> [opciones]
 ```
 
 #### 1. Listar colecciones
 
 ```bash
-virt mongo list-collections
+vir mongo list-collections
 ```
 
 #### 2. Insertar documentos
 
 ```bash
-virt mongo insert party resources/model/party/data.yaml
+vir mongo insert party resources/model/party/data.yaml
 ```
 
 #### 3. Buscar documentos
 
 ```bash
-virt mongo find party
-virt mongo find party --filter resources/model/party/filter.yaml --limit 5
-virt mongo find party --filter resources/model/party/filter.yaml --table --fields id,name,type
+vir mongo find party
+vir mongo find party --filter resources/model/party/filter.yaml --limit 5
+vir mongo find party --filter resources/model/party/filter.yaml --table --fields id,name,type
 ```
 
 #### 4. Eliminar documentos
 
 ```bash
-virt mongo delete party 64e9c9e4f9c2c6a1b2c3d4e5
-virt mongo delete party --filter resources/model/party/filter.yaml
-virt mongo delete party --filter resources/model/party/filter.yaml --yes
+vir mongo delete party 64e9c9e4f9c2c6a1b2c3d4e5
+vir mongo delete party --filter resources/model/party/filter.yaml
+vir mongo delete party --filter resources/model/party/filter.yaml --yes
 ```
+
+- Requiere escribir `DELETE` para confirmar (usa `--yes` para omitirla).
+
+#### 4.1 Limpiar todas las colecciones de una base
+
+```bash
+vir mongo delete-all
+vir mongo delete-all --yes
+vir mongo delete-all --include-system --yes
+```
+
+- Borra documentos en todas las colecciones de la base seleccionada.
+- Por defecto excluye colecciones `system.*`.
 
 #### 5. Exportar documentos
 
 ```bash
-virt mongo export party --format json
-virt mongo export party --format yaml --output resources/model/party/data.yaml
+vir mongo export party --format json
+vir mongo export party --format yaml --output resources/model/party/data.yaml
 ```
 
 ---
@@ -94,7 +107,7 @@ virt mongo export party --format yaml --output resources/model/party/data.yaml
 ### Comandos Postgres
 
 ```bash
-virt postgres <comando> [opciones]
+vir postgres <comando> [opciones]
 ```
 
 > Si ejecutas el CLI fuera de `virtualization-apis`, usa `--compose-dir` o `COMPOSE_DIR` para ubicar el `docker-compose.yml`.
@@ -154,41 +167,46 @@ environments:
 #### 1. Crear una base individual (opcionalmente con drop + schema)
 
 ```bash
-virt postgres create-db api_wallet --schema-dir resources/napa/seeds/postgres/sql
-virt postgres create-db api_wallet --drop --yes --schema-file /ruta/schema.sql
-virt postgres create-db api_wallet --schema-file resources/napa/databases/prisma/api-wallet/schema.prisma
-virt postgres create-db api_wallet --target api_wallet --schema-dir resources/napa/seeds/postgres/sql
+vir postgres create-db api_wallet --schema-dir resources/napa/seeds/postgres/sql
+vir postgres create-db api_wallet --drop --yes --schema-file /ruta/schema.sql
+vir postgres create-db api_wallet --schema-file resources/napa/databases/prisma/api-wallet/schema.prisma
+vir postgres create-db api_wallet --target api_wallet --schema-dir resources/napa/seeds/postgres/sql
 ```
+
+- Si usas `--drop` sin `--yes`, pide confirmación escribiendo `DELETE`.
 
 #### 2. Dropear una base individual
 
 ```bash
-virt postgres drop-db api_wallet --yes
-virt postgres drop-db api_wallet --target api_wallet --yes
+vir postgres drop-db api_wallet --yes
+vir postgres drop-db api_wallet --target api_wallet --yes
 ```
+
+- Si no usas `--yes`, pide confirmación escribiendo `DELETE`.
 
 #### 3. Limpiar datos de una base (sin dropear schema)
 
 ```bash
-virt postgres clean-db api_wallet --yes
-virt postgres clean-db api_wallet --target api_wallet --yes
+vir postgres clean-db api_wallet --yes
+vir postgres clean-db api_wallet --target api_wallet --yes
 ```
 
 `clean-db` hace `TRUNCATE ... RESTART IDENTITY CASCADE` sobre las tablas del schema `public` y excluye `_prisma_migrations`.
+- Si no usas `--yes`, pide confirmación escribiendo `DELETE`.
 
 #### 4. Seed genérico (SQL)
 
 ```bash
-virt postgres seed --db api_wallet --sql-file /ruta/seed.sql
-virt postgres seed --db api_wallet --sql-dir /ruta/sql
-virt postgres seed --db api_wallet --target api_wallet --sql-dir /ruta/sql
+vir postgres seed --db api_wallet --sql-file /ruta/seed.sql
+vir postgres seed --db api_wallet --sql-dir /ruta/sql
+vir postgres seed --db api_wallet --target api_wallet --sql-dir /ruta/sql
 ```
 
 #### 5. Seed YAML (insert/upsert/update/delete, single o multi DB)
 
 ```bash
-virt postgres seed-yaml --db api_wallet --seed resources/napa/databases/prisma/api-wallet/seed.yaml
-virt postgres seed-yaml --seed resources/napa/databases/prisma/user-party.yaml
+vir postgres seed-yaml --db api_wallet --seed resources/napa/databases/prisma/api-wallet/seed.yaml
+vir postgres seed-yaml --seed resources/napa/databases/prisma/user-party.yaml
 ```
 
 Formato básico (compatibilidad actual, una sola DB):
@@ -320,27 +338,34 @@ Notas:
 ### Comandos OpenSearch
 
 ```bash
-virt opensearch <comando> [opciones]
+vir opensearch <comando> [opciones]
 ```
 
 #### 1. Cargar datos en OpenSearch (bulk)
 
 ```bash
-virt opensearch load data.ndjson --endpoint http://localhost:9200
-virt opensearch load data.json --index my-index
-virt opensearch load data.yaml --index my-index --dry-run
+vir opensearch load data.ndjson --endpoint http://localhost:9200
+vir opensearch load data.json --index my-index
+vir opensearch load data.yaml --index my-index --dry-run
+vir opensearch load resources/napa/opensearch/api-wallet/seed-party.yaml --index party
+vir opensearch load resources/napa/opensearch/api-wallet/seed-operation.yaml
 ```
 
 - Para `.ndjson`/`.jsonl`, se envía el contenido tal cual al endpoint `/_bulk`.
-- Para `.json`/`.yaml`, se requiere `--index` y el CLI genera el bulk automáticamente.
+- Para `.json`/`.yaml`, el CLI genera el bulk automáticamente (`--index` requerido solo si el documento no trae `_index`).
+- Si el documento incluye `_index`, `_id` o `_routing`, esos metadatos se respetan (y `--index` pasa a ser fallback).
+- Para `.yaml` también se soporta formato estructurado con `variables` + `documents`/`rows`.
+- Para fechas dinámicas en YAML, podés usar `{{now}}` y offsets como `{{now-5m}}`, `{{now+2h}}`, `{{now+5ms}}`.
 - `--dry-run` muestra el payload sin enviarlo.
 
 #### 2. Crear un índice
 
 ```bash
-virt opensearch create-index my-index
-virt opensearch create-index my-index --body index-settings.json
-virt opensearch create-index my-index --body index-settings.yaml
+vir opensearch create-index my-index
+vir opensearch create-index my-index --body index-settings.json
+vir opensearch create-index my-index --body index-settings.yaml
+vir opensearch create-index party --body resources/napa/opensearch/api-wallet/party-index.yaml
+vir opensearch create-index operations-2025-12 --body resources/napa/opensearch/api-wallet/operation-index.yaml
 ```
 
 - `--body` acepta un archivo JSON o YAML con settings/mappings.
@@ -348,16 +373,16 @@ virt opensearch create-index my-index --body index-settings.yaml
 #### 2.1 Seed índice de operaciones
 
 ```bash
-virt opensearch seed-operations
-virt opensearch seed-operations --reset
-virt opensearch seed-operations --dynamic-ids --dynamic-timestamps
+vir opensearch seed-operations
+vir opensearch seed-operations --reset
+vir opensearch seed-operations --dynamic-ids --dynamic-timestamps
 ```
 
 #### 3. Insertar un documento
 
 ```bash
-virt opensearch insert my-index doc.json
-virt opensearch insert my-index doc.yaml --id my-doc-id
+vir opensearch insert my-index doc.json
+vir opensearch insert my-index doc.yaml --id my-doc-id
 ```
 
 - El documento debe ser un objeto JSON/YAML (no array).
@@ -365,12 +390,12 @@ virt opensearch insert my-index doc.yaml --id my-doc-id
 #### 4. Consultar estructura del índice
 
 ```bash
-virt opensearch describe-index my-index
-virt opensearch describe-index my-index --mappings
-virt opensearch describe-index my-index --settings
-virt opensearch describe-index my-index --mappings --unwrap
-virt opensearch describe-index my-index --mappings --unwrap --format compact
-virt opensearch describe-index my-index --mappings --table
+vir opensearch describe-index my-index
+vir opensearch describe-index my-index --mappings
+vir opensearch describe-index my-index --settings
+vir opensearch describe-index my-index --mappings --unwrap
+vir opensearch describe-index my-index --mappings --unwrap --format compact
+vir opensearch describe-index my-index --mappings --table
 ```
 
 - Por defecto devuelve mappings y settings.
@@ -381,8 +406,8 @@ virt opensearch describe-index my-index --mappings --table
 #### 5. Listar índices
 
 ```bash
-virt opensearch list-indices
-virt opensearch list-indices --format json
+vir opensearch list-indices
+vir opensearch list-indices --format json
 ```
 
 - Por defecto muestra una tabla.
@@ -390,12 +415,11 @@ virt opensearch list-indices --format json
 #### 6. Consultar índice (search)
 
 ```bash
-virt opensearch search party
-virt opensearch search party --q "name:demo"
-virt opensearch search party --file resources/model/party/search.yaml
-virt opensearch search party --q "type:person" --size 5 --from 10
-virt opensearch search party --q "type:person" --table
-virt opensearch search party --q "type:person" --table --fields id,name,chain
+vir opensearch search party
+vir opensearch search party --q "name:demo"
+vir opensearch search party --q "type:person" --size 5 --from 10
+vir opensearch search party --q "type:person" --table
+vir opensearch search party --q "type:person" --table --fields id,name,chain
 ```
 
 - Si no pasas `--q` o `--file`, ejecuta `match_all`.
@@ -404,28 +428,39 @@ virt opensearch search party --q "type:person" --table --fields id,name,chain
 #### 7. Eliminar documento
 
 ```bash
-virt opensearch delete party 123
-virt opensearch delete party 123 --yes
+vir opensearch delete party 123
+vir opensearch delete party 123 --yes
 ```
 
-- Requiere confirmación interactiva (usa `--yes` para omitirla).
+- Requiere confirmación interactiva escribiendo `DELETE` (usa `--yes` para omitirla).
 
 #### 8. Eliminar todos los documentos
 
 ```bash
-virt opensearch delete-all party
-virt opensearch delete-all party --yes
+vir opensearch delete-all party
+vir opensearch delete-all party --yes
 ```
 
 - Ejecuta un `delete_by_query` con `match_all`.
-- Requiere confirmación interactiva (usa `--yes` para omitirla).
+- Requiere confirmación interactiva escribiendo `DELETE` (usa `--yes` para omitirla).
+
+#### 8.1 Eliminar todos los documentos de todos los índices
+
+```bash
+vir opensearch delete-all-indices
+vir opensearch delete-all-indices --yes
+vir opensearch delete-all-indices --include-system --yes
+```
+
+- Ejecuta `delete_by_query` índice por índice.
+- Por defecto excluye índices de sistema (`.` prefijo).
 
 #### 9. Exportar definición de índice
 
 ```bash
-virt opensearch export-index party --format yaml
-virt opensearch export-index party --mappings --format json
-virt opensearch export-index party --settings --format yaml --output resources/model/party/index.yaml
+vir opensearch export-index party --format yaml
+vir opensearch export-index party --mappings --format json
+vir opensearch export-index party --settings --format yaml --output resources/napa/opensearch/api-wallet/party-index.yaml
 ```
 
 - Por defecto exporta mappings + settings.
@@ -434,10 +469,10 @@ virt opensearch export-index party --settings --format yaml --output resources/m
 
 - `npm run dev -- <comando>` ejecuta el CLI con `ts-node` (ideal para iterar sin compilar).
 - `npm run lint` verifica estilo con ESLint.
-- `npm run build` genera `dist/` listo para usar con el alias `virt` o publicar.
+- `npm run build` genera `dist/` listo para usar con el alias `vir` o publicar.
 
 ### Troubleshooting
 
 - Si OpenSearch no responde, revisá `OPENSEARCH_URL` o pasá `--endpoint` manualmente.
-- Después de cambiar código TypeScript, ejecutá `npm run build` antes de usar `virt …`.
+- Después de cambiar código TypeScript, ejecutá `npm run build` antes de usar `vir …`.
 - Para deshacer el enlace global: `npm unlink --global shell-virtual`.

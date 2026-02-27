@@ -25,15 +25,27 @@ enum RecordStatus {
   ARCHIVED
 }
 
-/// Estados que describen la ejecución de una simulación.
-enum SimulationStatus {
-  DRAFT
-  RUNNING
-  DONE
-  FAILED
+/// Tipos de principal para asignación genérica de roles.
+enum PrincipalType {
+  PARTY
+  USER
+  SERVICE
 }
 
-/// Catálogo de monedas soportadas por el sistema (producción y simulaciones).
+/// Ámbitos de aplicación para roles y políticas.
+enum AccessScopeType {
+  GLOBAL
+  ORGANIZATION
+  PARTY
+}
+
+/// Efecto de una política o permiso.
+enum PolicyEffect {
+  ALLOW
+  DENY
+}
+
+/// Catálogo de monedas soportadas por el sistema.
 model Currency {
   id               String   @id /// Identificador ISO o personalizado (ej: "USD", "ARS").
   name             String
@@ -43,10 +55,7 @@ model Currency {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  parties           Party[]
-  simulationRuns    SimulationRun[]
-  simulationInputs  SimulationInput[]
-  simulationResults SimulationResult[]
+  parties Party[]
 }
 
 /// Entidad base para afiliados, jugadores y organizaciones.
@@ -68,16 +77,21 @@ model Party {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  currency            Currency?                 @relation(fields: [currencyId], references: [id], onDelete: SetNull)
-  ancestors             PartyClosure[]              @relation("ancestor")
-  descendants           PartyClosure[]              @relation("descendant")
-  commissionAssignments PartyCommissionAssignment[]
+  currency              Currency?                 @relation(fields: [currencyId], references: [id], onDelete: SetNull)
+  ancestors             PartyClosure[]            @relation("ancestor")
+  descendants           PartyClosure[]            @relation("descendant")
+  referralTerms         PartyReferralTerm[]
+  commissionTerms       PartyCommissionTerm[]
+  principalRoleScopes   PrincipalRoleAssignment[] @relation("PrincipalPartyRoles")
+  scopedRoleAssignments PrincipalRoleAssignment[] @relation("ScopePartyRoles")
+  scopedPolicyRules     AccessPolicyRule[]        @relation("ScopePartyPolicies")
 
   @@index([alias])
   @@index([status])
   @@index([externalIdentifier])
   @@index([qrIdentifier])
   @@index([currencyId])
+  @@index([orgId])
 }
 
 /// Tabla de clausura para representar rutas jerárquicas (path enumeration).
@@ -95,101 +109,151 @@ model PartyClosure {
   @@index([ancestorId, depth])
 }
 
-/// Plan de comisiones parametrizable con niveles y vigencia.
-model CommissionPlan {
-  id            String       @id @default(uuid())
-  shortId       String       @unique @default(cuid()) /// Identificador legible (ej: "PLAN-hs7wqTzL4r")
-  name          String
-  status        RecordStatus @default(ACTIVE)
-  baseType      String       @default("BET")
-  combineMode   String       @default("EXCLUSIVE")
-  levels        Json /// Ejemplo: [{ level: 0, percentage: 0.1 }, ...]
-  effectiveFrom DateTime     @default(now())
-  effectiveTo   DateTime?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+/// Historial de códigos de referido por afiliador.
+model PartyReferralTerm {
+  id             String       @id @default(uuid())
+  shortId        String       @unique @default(cuid())
+  partyId        String
+  referralCode   String
+  validityDays   Int?
+  validityMonths Int?
+  validFrom      DateTime     @default(now())
+  validTo        DateTime?
+  status         RecordStatus @default(ACTIVE)
+  parentTermId   String?
+  metadata       Json?
+  createdBy      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
-  assignments PartyCommissionAssignment[]
-  simulations SimulationRun[]
-
-  @@index([status])
-  @@index([effectiveFrom, effectiveTo])
-}
-
-/// Asignaciones históricas de planes de comisión para cada Party.
-model PartyCommissionAssignment {
-  id               String       @id @default(uuid())
-  shortId          String       @unique @default(cuid()) /// Identificador legible (ej: "ASSG-abc123")
-  partyId          String
-  commissionPlanId String
-  assignedAt       DateTime     @default(now())
-  unassignedAt     DateTime?
-  status           RecordStatus @default(ACTIVE)
-
-  party          Party          @relation(fields: [partyId], references: [id], onDelete: Cascade)
-  commissionPlan CommissionPlan @relation(fields: [commissionPlanId], references: [id], onDelete: Cascade)
+  party      Party               @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  parentTerm PartyReferralTerm?  @relation("ReferralTermHierarchy", fields: [parentTermId], references: [id], onDelete: SetNull)
+  childTerms PartyReferralTerm[] @relation("ReferralTermHierarchy")
 
   @@index([partyId, status])
-  @@index([commissionPlanId])
+  @@index([referralCode])
+  @@index([validFrom, validTo])
+  @@index([parentTermId])
 }
 
-/// Ejecución de un set de simulaciones de comisiones.
-model SimulationRun {
-  id          String           @id @default(uuid())
-  shortId     String           @unique @default(cuid()) /// Identificador legible (ej: "RUN-kF8n2DqS3p")
+/// Historial de porcentaje de comisión por afiliador.
+model PartyCommissionTerm {
+  id             String       @id @default(uuid())
+  shortId        String       @unique @default(cuid())
+  partyId        String
+  percentage     Decimal      @db.Decimal(7, 4)
+  validityDays   Int?
+  validityMonths Int?
+  validFrom      DateTime     @default(now())
+  validTo        DateTime?
+  status         RecordStatus @default(ACTIVE)
+  parentTermId   String?
+  metadata       Json?
+  createdBy      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  party      Party                 @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  parentTerm PartyCommissionTerm?  @relation("CommissionTermHierarchy", fields: [parentTermId], references: [id], onDelete: SetNull)
+  childTerms PartyCommissionTerm[] @relation("CommissionTermHierarchy")
+
+  @@index([partyId, status])
+  @@index([percentage])
+  @@index([validFrom, validTo])
+  @@index([parentTermId])
+}
+
+/// Catálogo de roles reutilizables.
+model Role {
+  id          String       @id @default(uuid())
+  key         String       @unique /// Clave técnica estable (ej: AFFILIATE_ADMIN).
   name        String
   description String?
-  createdBy   String?
-  status      SimulationStatus @default(DRAFT)
-  planId      String?
-  currencyId  String?
-  context     Json?
-  utm         Json?           /// Contexto general de marketing o afiliación aplicado a toda la simulación
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  status      RecordStatus @default(ACTIVE)
+  isSystem    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
-  plan     CommissionPlan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
-  currency Currency?          @relation(fields: [currencyId], references: [id], onDelete: SetNull)
-  inputs   SimulationInput[]
-  results  SimulationResult[]
+  permissions RolePermission[]
+  assignments PrincipalRoleAssignment[]
+
+  @@index([status])
 }
 
-/// Entrada individual a simular (evento económico).
-model SimulationInput {
-  id                 String   @id @default(uuid())
-  shortId            String   @unique @default(cuid()) /// Identificador legible (ej: "INP-xyz987")
-  runId              String
-  playerId           String
-  amount             Decimal  @db.Decimal(18, 6)
-  occurredAt         DateTime
-  currencyId         String?
-  context            Json?
-  utm                Json? /// Información de marketing: { source, medium, campaign, term, content }
-  externalIdentifier String? /// Referencia externa de la operación (wallet, CRM, partner, etc.).
-  createdAt          DateTime @default(now())
+/// Catálogo de capacidades/acciones autorizables.
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique /// Clave técnica estable (ej: party.createAffiliate).
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  run      SimulationRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
-  currency Currency?          @relation(fields: [currencyId], references: [id], onDelete: SetNull)
-  results  SimulationResult[]
+  roles       RolePermission[]
+  policyRules AccessPolicyRule[]
 }
 
-/// Resultado de comisión calculado por beneficiario y nivel.
-model SimulationResult {
-  id            String       @id @default(uuid())
-  shortId       String       @unique @default(cuid()) /// Identificador legible (ej: "RES-123abc")
-  runId         String
-  inputId       String
-  beneficiaryId String
-  level         Int
-  percentage    Decimal      @db.Decimal(9, 6)
-  commission    Decimal      @db.Decimal(18, 6)
-  currencyId    String?
-  status        RecordStatus @default(ACTIVE)
-  createdAt     DateTime     @default(now())
+/// Matriz de permisos asignados a roles.
+model RolePermission {
+  roleId       String
+  permissionId String
+  effect       PolicyEffect @default(ALLOW)
+  createdAt    DateTime     @default(now())
 
-  run      SimulationRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
-  input    SimulationInput @relation(fields: [inputId], references: [id], onDelete: Cascade)
-  currency Currency?       @relation(fields: [currencyId], references: [id], onDelete: SetNull)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+/// Asignaciones de roles para principals (party/user/service) con scope y vigencia.
+model PrincipalRoleAssignment {
+  id                   String          @id @default(uuid())
+  principalType        PrincipalType
+  principalRef         String /// Identificador del principal (UUID, externalId, etc.).
+  principalPartyId     String?
+  roleId               String
+  scopeType            AccessScopeType @default(GLOBAL)
+  scopePartyId         String?
+  inheritToDescendants Boolean         @default(true)
+  validFrom            DateTime        @default(now())
+  validTo              DateTime?
+  status               RecordStatus    @default(ACTIVE)
+  createdBy            String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  principalParty Party? @relation("PrincipalPartyRoles", fields: [principalPartyId], references: [id], onDelete: SetNull)
+  role           Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  scopeParty     Party? @relation("ScopePartyRoles", fields: [scopePartyId], references: [id], onDelete: SetNull)
+
+  @@index([principalType, principalRef, status])
+  @@index([principalPartyId])
+  @@index([scopeType, scopePartyId, status])
+  @@index([roleId, status])
+}
+
+/// Reglas de política sobre permisos con efecto ALLOW/DENY y herencia por jerarquía.
+model AccessPolicyRule {
+  id                   String          @id @default(uuid())
+  scopeType            AccessScopeType @default(GLOBAL)
+  scopePartyId         String?
+  permissionId         String
+  effect               PolicyEffect
+  inheritToDescendants Boolean         @default(true)
+  priority             Int             @default(0)
+  conditions           Json?
+  validFrom            DateTime        @default(now())
+  validTo              DateTime?
+  status               RecordStatus    @default(ACTIVE)
+  createdBy            String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  scopeParty Party?     @relation("ScopePartyPolicies", fields: [scopePartyId], references: [id], onDelete: SetNull)
+
+  @@index([scopeType, scopePartyId, status])
+  @@index([permissionId, status, effect])
 }
