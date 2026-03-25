@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: api_data_virtual_docs_json
+    method: GET
+    path: /docs-json
+    response:
+      status: 200
+      body:
+        ok: true
+        format: json
+        note: Use /__meta/openapi for the current spec.
+
+  - operationId: api_data_virtual_docs_yaml
+    method: GET
+    path: /docs-yaml
+    response:
+      status: 200
+      body:
+        ok: true
+        format: yaml
+        note: Use /__meta/openapi for the current spec.

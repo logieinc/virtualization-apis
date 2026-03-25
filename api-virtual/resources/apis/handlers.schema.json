@@ -22,6 +22,30 @@
           "method": { "type": "string" },
           "path": { "type": "string" },
           "handler": { "type": "string" },
+          "workflow": {
+            "type": "object",
+            "properties": {
+              "steps": {
+                "type": "array",
+                "items": { "type": "object" }
+              },
+              "response": {
+                "type": "object",
+                "properties": {
+                  "status": { "type": "integer" },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" }
+                  },
+                  "body": {},
+                  "bodyTemplate": {}
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["steps"],
+            "additionalProperties": false
+          },
           "response": {
             "type": "object",
             "properties": {

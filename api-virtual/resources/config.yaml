@@ -7,6 +7,100 @@ resources:
     type: opensearch
     endpoint: http://localhost:9200
     description: Clúster simulado para búsquedas y analytics.
+    indices:
+      players: players-affiliations-v1
+      playerNetwinDaily: player-netwin-daily-v1
+      playerBets: player-bets-v1
+    indexDefinitions:
+      players-affiliations-v1:
+        settings:
+          number_of_shards: 1
+          number_of_replicas: 0
+        mappings:
+          properties:
+            id:
+              type: keyword
+            externalReference:
+              type: keyword
+            affiliateId:
+              type: keyword
+            referralCode:
+              type: keyword
+            fullName:
+              type: text
+              fields:
+                keyword:
+                  type: keyword
+                  ignore_above: 256
+            email:
+              type: keyword
+            status:
+              type: keyword
+            country:
+              type: keyword
+            currency:
+              type: keyword
+            metadata:
+              type: object
+              enabled: true
+            createdAt:
+              type: date
+            updatedAt:
+              type: date
+      player-netwin-daily-v1:
+        settings:
+          number_of_shards: 1
+          number_of_replicas: 0
+        mappings:
+          properties:
+            id:
+              type: keyword
+            date:
+              type: date
+            affiliateId:
+              type: keyword
+            playerId:
+              type: keyword
+            currency:
+              type: keyword
+            netwin:
+              type: long
+            coinIn:
+              type: long
+            coinOut:
+              type: long
+            operationCount:
+              type: integer
+            createdAt:
+              type: date
+            updatedAt:
+              type: date
+      player-bets-v1:
+        settings:
+          number_of_shards: 1
+          number_of_replicas: 0
+        mappings:
+          properties:
+            id:
+              type: keyword
+            playerId:
+              type: keyword
+            affiliateId:
+              type: keyword
+            currency:
+              type: keyword
+            stake:
+              type: long
+            payout:
+              type: long
+            netwin:
+              type: long
+            status:
+              type: keyword
+            createdAt:
+              type: date
+            updatedAt:
+              type: date
   cache:
     type: redis
     endpoint: redis://localhost:6379

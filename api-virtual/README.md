@@ -15,11 +15,192 @@ api-virtual/
       payments/
         openapi.yaml
         handlers.yaml
+      api-data-virtual/
+        openapi.yaml
+        handlers.yaml
+        handlers/
+          players.list.yaml
+          players.create.yaml
+          players.get.yaml
+          players.delete.yaml
+          metrics.overview.yaml
+          metrics.netwin.yaml
 ```
 
 - `openapi.yaml`: define paths y schemas (se usa para derivar `basePath` desde `servers[0].url`).
 - `handlers.yaml`: lista de rutas con `method`, `path` y `response` o `handler` (TS).
 - `config.yaml`: recursos disponibles para los templates (`resources.postgres`, `resources.opensearch`, etc.).
+
+### Workflows declarativos (sin código específico por endpoint)
+
+Además de `response` o `handler`, una ruta puede definir `workflow` con pasos declarativos.
+El workflow se ejecuta contra recursos (por ejemplo OpenSearch) y devuelve una respuesta
+armada con `response.bodyTemplate`.
+
+#### Orden de resolución por ruta
+
+`api-virtual` resuelve una ruta en este orden:
+1. `workflow` (si existe)
+2. `handler` (si existe y no hay `workflow`)
+3. `response` / `response.bodyTemplate`
+
+Esto permite empezar declarativo y usar `handler` TS solo cuando falta una capacidad global.
+
+#### Estructura base de workflow
+
+```yaml
+routes:
+  - method: GET
+    path: /health
+    workflow:
+      steps:
+        - set: now
+          valueTemplate: "{{meta.now}}"
+      response:
+        status: 200
+        bodyTemplate:
+          ok: true
+          now: "{{vars.now}}"
+```
+
+#### Contexto disponible en templates
+
+Podés interpolar con `{{...}}` contra:
+- `params.*`
+- `query.*`
+- `body.*`
+- `resources.*` (desde `resources/config.yaml`)
+- `meta.now`, `meta.randomId`, `meta.requestId`
+- `vars.*` (estado acumulado del workflow)
+- `item` / `index` (dentro de `forEach`) o alias `as` / `indexAs`
+
+Notas:
+- Si el template es exactamente `{{token}}`, conserva el tipo original (number/boolean/object/array).
+- Si `{{token}}` está embebido dentro de un string, el resultado final es string.
+
+#### Tipos de paso soportados
+
+1. `set`: escribe valor en `vars`.
+
+```yaml
+- set: page
+  valueTemplate: "{{query.page}}"
+```
+
+2. `append`: agrega un elemento al array en `vars` (crea array si no existe).
+
+```yaml
+- append: rows
+  valueTemplate:
+    id: "{{item.id}}"
+```
+
+3. `forEach`: itera una colección y ejecuta `steps` anidados.
+
+```yaml
+- forEach: "{{vars.items}}"
+  as: row
+  indexAs: i
+  steps:
+    - append: ids
+      valueTemplate: "{{row.id}}"
+```
+
+4. `action`: ejecuta una acción global reutilizable.
+
+```yaml
+- action: util.toInt
+  input:
+    value: "{{query.limit}}"
+    default: 20
+  saveAs: limit
+```
+
+5. `when` (opcional): guard para ejecutar condicionalmente cualquier paso.
+
+```yaml
+- when: "{{query.affiliateId}}"
+  set: hasAffiliate
+  value: true
+```
+
+#### Acciones `util.*` (genéricas)
+
+| Acción | Propósito | Input principal | Output típico |
+|---|---|---|---|
+| `util.makeId` | Generar id estable + random suffix | `prefix`, `parts[]` | `string` |
+| `util.toInt` | Parse/clamp entero | `value`, `default`, `min`, `max` | `number` |
+| `util.math` | Operación numérica | `op: add/sub/mul/div/min/max`, `a`, `b` | `number` |
+| `util.coalesce` | Primer valor no vacío | `values[]`, `default` | `unknown` |
+| `util.boolToInt` | `true/false` a `1/0` | `value` | `number` |
+| `util.require` | Validación y corte de flujo | `condition`, `status`, `message` | `{ ok: true }` o error HTTP |
+| `util.extractSearch` | Normaliza respuesta `_search` | `searchResult` | `{ total, hits, sources }` |
+| `util.buildFilters` | Construye filtros OpenSearch | `items[]` (`term` / `range`) | `array` |
+| `util.toBoolQuery` | Convierte filtros a query | `filters[]` | `query object` |
+| `util.select` | Selección por clave | `key`, `options`, `default` | `unknown` |
+| `util.generateNetwinSimulation` | Dataset demo de netwin + bets | `playerId`, `affiliateId`, `currency`, `now`, `days`, `betsPerDay` | `{ dailyDocs, betDocs }` |
+
+#### Acciones `opensearch.*` (genéricas)
+
+Todas usan por defecto `resource: opensearch`.
+El endpoint se toma de `resources.<resource>.endpoint`.
+
+| Acción | Propósito | Input principal | Output típico |
+|---|---|---|---|
+| `opensearch.search` | Ejecutar `_search` | `index`, `body` | respuesta OpenSearch (`hits`, `aggregations`) |
+| `opensearch.count` | Ejecutar `_count` | `index`, `query` | `{ count }` |
+| `opensearch.get` | Obtener documento por id | `index`, `id` | `{ found, source, raw }` |
+| `opensearch.index` | Upsert documento por id | `index`, `id`, `document` | respuesta `_doc` |
+| `opensearch.bulk` | Indexación masiva | `index`, `documents[]` | respuesta `_bulk` |
+| `opensearch.delete` | Borrado por id | `index`, `id` | `{ deleted, result }` |
+| `opensearch.deleteByQuery` | Borrado masivo por query | `index`, `query` | `{ deleted }` |
+
+Comportamiento de creación de índices:
+- `opensearch.index` y `opensearch.bulk` hacen `ensure index` automático.
+- Si definís `resources.opensearch.indexDefinitions`, usa ese mapping/settings al crear.
+- Si no hay definición, crea índice vacío.
+
+Formato de `documents[]` en `opensearch.bulk`:
+- Variante 1: `{ id: "...", document: { ... } }`
+- Variante 2: `{ id: "...", campoA: "...", campoB: 1 }` (usa el resto de campos como body)
+
+#### Ejemplo práctico (alta + simulación)
+
+```yaml
+- action: util.makeId
+  input:
+    prefix: plr
+    parts: ["{{body.affiliateId}}", "{{body.externalReference}}"]
+  saveAs: playerId
+
+- set: player
+  valueTemplate:
+    id: "{{vars.playerId}}"
+    affiliateId: "{{body.affiliateId}}"
+    fullName: "{{body.fullName}}"
+    createdAt: "{{meta.now}}"
+
+- action: opensearch.index
+  input:
+    index: "{{resources.opensearch.indices.players}}"
+    id: "{{vars.playerId}}"
+    document: "{{vars.player}}"
+
+- action: util.generateNetwinSimulation
+  input:
+    playerId: "{{vars.playerId}}"
+    affiliateId: "{{body.affiliateId}}"
+    currency: DOP
+    now: "{{meta.now}}"
+    days: 14
+    betsPerDay: 3
+  saveAs: simulation
+
+- action: opensearch.bulk
+  input:
+    index: "{{resources.opensearch.indices.playerNetwinDaily}}"
+    documents: "{{vars.simulation.dailyDocs}}"
+```
 
 ### Handlers en múltiples archivos
 
@@ -54,6 +235,15 @@ routes:
   - method: GET
     path: /reports/netwin
     handler: api-data/netwin
+```
+
+También podés usar una export nombrada con formato `archivo.export`, por ejemplo:
+
+```yaml
+routes:
+  - method: GET
+    path: /reports/summary
+    handler: tools/reports.buildSummary
 ```
 
 El módulo debe vivir en `api-virtual/src/handlers/api-data/netwin.ts` y exportar una función:

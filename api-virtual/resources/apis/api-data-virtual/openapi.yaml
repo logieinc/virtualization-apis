@@ -1,0 +1,347 @@
+openapi: 3.1.0
+info:
+  title: API Data Virtual - Affiliations
+  version: 0.1.0
+  description: API virtual para simular lectura/escritura de jugadores y métricas de afiliaciones.
+servers:
+  - url: /api-data-virtual/api/v1
+tags:
+  - name: System
+    description: Endpoints técnicos y de estado.
+  - name: Players
+    description: Alta y consultas de jugadores virtualizados.
+  - name: Metrics
+    description: Métricas agregadas (overview y netwin).
+paths:
+  /docs-json:
+    get:
+      tags:
+        - System
+      summary: Download OpenAPI JSON
+      operationId: api_data_virtual_docs_json
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema: {}
+  /docs-yaml:
+    get:
+      tags:
+        - System
+      summary: Download OpenAPI YAML
+      operationId: api_data_virtual_docs_yaml
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema: {}
+  /health:
+    get:
+      tags:
+        - System
+      summary: Health check
+      operationId: api_data_virtual_health
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /players:
+    get:
+      tags:
+        - Players
+      summary: List players
+      operationId: api_data_virtual_players_list
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: affiliateId
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE, BLOCKED]
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayersListResponse"
+    post:
+      tags:
+        - Players
+      summary: Create player
+      operationId: api_data_virtual_players_create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlayerCreateInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerCreateResponse"
+  /players/{playerId}:
+    get:
+      tags:
+        - Players
+      summary: Get player by id
+      operationId: api_data_virtual_players_get
+      parameters:
+        - in: path
+          name: playerId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+    delete:
+      tags:
+        - Players
+      summary: Delete player and related index data
+      operationId: api_data_virtual_players_delete
+      parameters:
+        - in: path
+          name: playerId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  playerId:
+                    type: string
+                  deleted:
+                    type: object
+                    additionalProperties: true
+  /metrics/overview:
+    get:
+      tags:
+        - Metrics
+      summary: Get players metrics overview
+      operationId: api_data_virtual_metrics_overview
+      parameters:
+        - in: query
+          name: dateIn
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: dateOut
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: affiliateId
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsOverviewResponse"
+  /metrics/netwin:
+    get:
+      tags:
+        - Metrics
+      summary: Get netwin aggregation
+      operationId: api_data_virtual_metrics_netwin
+      parameters:
+        - in: query
+          name: dateIn
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: dateOut
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum: [day, affiliate, player]
+            default: day
+        - in: query
+          name: affiliateId
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetwinResponse"
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        now:
+          type: string
+          format: date-time
+    Player:
+      type: object
+      properties:
+        id:
+          type: string
+        externalReference:
+          type: string
+        affiliateId:
+          type: string
+        referralCode:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+        country:
+          type: string
+        currency:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    PlayerCreateInput:
+      type: object
+      required:
+        - externalReference
+        - affiliateId
+        - fullName
+      properties:
+        externalReference:
+          type: string
+        affiliateId:
+          type: string
+        referralCode:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        country:
+          type: string
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, BLOCKED]
+          default: ACTIVE
+    PlayerCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/Player"
+        - type: object
+          properties:
+            storage:
+              type: object
+              properties:
+                provider:
+                  type: string
+                endpoint:
+                  type: string
+                index:
+                  type: string
+    PlayersListResponse:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        filters:
+          type: object
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Player"
+    MetricsOverviewResponse:
+      type: object
+      properties:
+        dateRange:
+          type: object
+          additionalProperties: true
+        players:
+          type: object
+          properties:
+            total:
+              type: integer
+            active:
+              type: integer
+            inactive:
+              type: integer
+        netwin:
+          type: object
+          properties:
+            total:
+              type: number
+            currency:
+              type: string
+        source:
+          type: object
+          additionalProperties: true
+    NetwinResponse:
+      type: object
+      properties:
+        groupBy:
+          type: string
+        dateRange:
+          type: object
+          additionalProperties: true
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true

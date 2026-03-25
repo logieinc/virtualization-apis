@@ -1,0 +1,25 @@
+settings:
+  number_of_shards: 1
+  number_of_replicas: 0
+mappings:
+  properties:
+    id:
+      type: keyword
+    playerId:
+      type: keyword
+    affiliateId:
+      type: keyword
+    currency:
+      type: keyword
+    stake:
+      type: long
+    payout:
+      type: long
+    netwin:
+      type: long
+    status:
+      type: keyword
+    createdAt:
+      type: date
+    updatedAt:
+      type: date

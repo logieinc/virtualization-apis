@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: api_data_virtual_players_get
+    method: GET
+    path: /players/{playerId}
+    workflow:
+      steps:
+        - action: opensearch.get
+          input:
+            index: "{{resources.opensearch.indices.players}}"
+            id: "{{params.playerId}}"
+          saveAs: playerDoc
+        - action: util.require
+          input:
+            condition: "{{vars.playerDoc.found}}"
+            status: 404
+            message: "Player not found: {{params.playerId}}"
+      response:
+        status: 200
+        bodyTemplate: "{{vars.playerDoc.source}}"

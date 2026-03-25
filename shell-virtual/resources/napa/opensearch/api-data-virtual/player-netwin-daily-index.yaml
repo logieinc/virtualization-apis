@@ -1,0 +1,27 @@
+settings:
+  number_of_shards: 1
+  number_of_replicas: 0
+mappings:
+  properties:
+    id:
+      type: keyword
+    date:
+      type: date
+    affiliateId:
+      type: keyword
+    playerId:
+      type: keyword
+    currency:
+      type: keyword
+    netwin:
+      type: long
+    coinIn:
+      type: long
+    coinOut:
+      type: long
+    operationCount:
+      type: integer
+    createdAt:
+      type: date
+    updatedAt:
+      type: date

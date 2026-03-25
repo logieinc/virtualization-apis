@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: api_data_virtual_health
+    method: GET
+    path: /health
+    response:
+      status: 200
+      bodyTemplate:
+        status: ok
+        now: "{{meta.now}}"

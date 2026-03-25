@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: api_data_virtual_players_list
+    method: GET
+    path: /players
+    workflow:
+      steps:
+        - action: util.toInt
+          input:
+            value: "{{query.page}}"
+            default: 1
+            min: 1
+          saveAs: page
+        - action: util.toInt
+          input:
+            value: "{{query.limit}}"
+            default: 20
+            min: 1
+            max: 100
+          saveAs: limit
+        - action: util.math
+          input:
+            op: sub
+            a: "{{vars.page}}"
+            b: 1
+          saveAs: pageOffset
+        - action: util.math
+          input:
+            op: mul
+            a: "{{vars.pageOffset}}"
+            b: "{{vars.limit}}"
+          saveAs: from
+        - action: opensearch.search
+          input:
+            index: "{{resources.opensearch.indices.players}}"
+            body:
+              from: "{{vars.from}}"
+              size: "{{vars.limit}}"
+              sort:
+                - createdAt:
+                    order: desc
+              query:
+                match_all: {}
+          saveAs: searchResult
+        - action: util.extractSearch
+          input:
+            searchResult: "{{vars.searchResult}}"
+          saveAs: players
+      response:
+        status: 200
+        bodyTemplate:
+          page: "{{vars.page}}"
+          limit: "{{vars.limit}}"
+          total: "{{vars.players.total}}"
+          filters:
+            search: "{{query.search}}"
+            affiliateId: "{{query.affiliateId}}"
+            status: "{{query.status}}"
+          data: "{{vars.players.sources}}"

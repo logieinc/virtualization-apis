@@ -1,0 +1,40 @@
+variables:
+  INDEX_NAME: players-affiliations-v1
+  AFFILIATE_ID: aff-seed-01
+  CURRENCY: DOP
+  COUNTRY: DO
+
+documents:
+  - _id: p_seed_01
+    _index: "{{vars.INDEX_NAME}}"
+    id: p_seed_01
+    externalReference: ext-player-001
+    affiliateId: "{{vars.AFFILIATE_ID}}"
+    referralCode: REF-001
+    fullName: Demo Player One
+    email: demo.player1@virtual.local
+    status: ACTIVE
+    country: "{{vars.COUNTRY}}"
+    currency: "{{vars.CURRENCY}}"
+    metadata:
+      source: seed
+      tag: api-data-virtual
+    createdAt: "{{now}}"
+    updatedAt: "{{now+1s}}"
+
+  - _id: p_seed_02
+    _index: "{{vars.INDEX_NAME}}"
+    id: p_seed_02
+    externalReference: ext-player-002
+    affiliateId: "{{vars.AFFILIATE_ID}}"
+    referralCode: REF-002
+    fullName: Demo Player Two
+    email: demo.player2@virtual.local
+    status: INACTIVE
+    country: AR
+    currency: USD
+    metadata:
+      source: seed
+      tag: api-data-virtual
+    createdAt: "{{now+2s}}"
+    updatedAt: "{{now+3s}}"

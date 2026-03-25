@@ -1,0 +1,33 @@
+variables:
+  INDEX_NAME: player-netwin-daily-v1
+  AFFILIATE_ID: aff-seed-01
+  CURRENCY: DOP
+
+documents:
+  - _id: netwin_day_001
+    _index: "{{vars.INDEX_NAME}}"
+    id: netwin_day_001
+    date: "2026-02-27T00:00:00Z"
+    affiliateId: "{{vars.AFFILIATE_ID}}"
+    playerId: p_seed_01
+    currency: "{{vars.CURRENCY}}"
+    netwin: 18000
+    coinIn: 99000
+    coinOut: 81000
+    operationCount: 120
+    createdAt: "{{now}}"
+    updatedAt: "{{now+1s}}"
+
+  - _id: netwin_day_002
+    _index: "{{vars.INDEX_NAME}}"
+    id: netwin_day_002
+    date: "2026-02-28T00:00:00Z"
+    affiliateId: "{{vars.AFFILIATE_ID}}"
+    playerId: p_seed_02
+    currency: "{{vars.CURRENCY}}"
+    netwin: 9000
+    coinIn: 57000
+    coinOut: 48000
+    operationCount: 84
+    createdAt: "{{now+2s}}"
+    updatedAt: "{{now+3s}}"

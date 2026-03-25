@@ -5,6 +5,11 @@ import fs from 'fs';
 import { parse as parseYaml } from 'yaml';
 import swaggerUi from 'swagger-ui-express';
 import type { HandlerContext, HandlerFn, HandlerResult } from './handlers/types';
+import {
+  executeWorkflow,
+  type WorkflowDefinition,
+  WorkflowHttpError
+} from './workflow/engine';
 
 interface HandlerResponse {
   status?: number;
@@ -21,6 +26,7 @@ interface HandlerDefinition {
   path: string;
   response?: HandlerResponse;
   handler?: string;
+  workflow?: WorkflowDefinition;
 }
 
 interface ApiMetadata {
@@ -503,6 +509,33 @@ function buildApiRouter(api: VirtualApi, sharedConfig: ResourcesConfig): Router 
         res
       };
 
+      if (handler.workflow) {
+        try {
+          const result = await executeWorkflow(handler.workflow, context);
+          if (res.headersSent || res.writableEnded) {
+            return;
+          }
+          const normalized = normalizeHandlerResult(result);
+          const status = normalized.status ?? 200;
+          const headers = normalized.headers ?? {};
+          Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
+          sendResponseBody(res, status, normalized.body);
+        } catch (error) {
+          if (error instanceof WorkflowHttpError) {
+            if (!res.headersSent) {
+              sendResponseBody(res, error.status, error.body);
+            }
+            return;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          log('error', `Workflow failed for ${api.id} ${handler.path}: ${message}`);
+          if (!res.headersSent) {
+            res.status(500).json({ message: 'Workflow execution failed', error: message });
+          }
+        }
+        return;
+      }
+
       if (handler.handler) {
         try {
           const handlerFn = loadHandler(handler.handler);
@@ -787,15 +820,44 @@ function loadHandler(handlerId: string): HandlerFn {
   if (cached) {
     return cached;
   }
-  const resolvedPath = resolveHandlerPath(handlerId);
+  const parsed = parseHandlerId(handlerId);
+  const resolvedPath = resolveHandlerPath(parsed.moduleId);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require(resolvedPath);
-  const handler = mod?.default ?? mod?.handler ?? mod;
+  const handler =
+    (parsed.exportName ? mod?.[parsed.exportName] : undefined) ??
+    mod?.default ??
+    mod?.handler ??
+    mod;
   if (typeof handler !== 'function') {
-    throw new Error(`Handler module ${handlerId} does not export a function`);
+    const detail = parsed.exportName ? ` export "${parsed.exportName}"` : '';
+    throw new Error(`Handler module ${parsed.moduleId} does not export a function${detail}`);
   }
   handlerCache.set(handlerId, handler as HandlerFn);
   return handler as HandlerFn;
+}
+
+function parseHandlerId(handlerId: string): {
+  moduleId: string;
+  exportName?: string;
+} {
+  const ext = path.extname(handlerId).toLowerCase();
+  const hasKnownExt = ext === '.js' || ext === '.ts' || ext === '.mjs' || ext === '.cjs';
+  if (hasKnownExt) {
+    return { moduleId: handlerId };
+  }
+
+  const lastSlash = handlerId.lastIndexOf('/');
+  const lastDot = handlerId.lastIndexOf('.');
+  if (lastDot > lastSlash) {
+    const moduleId = handlerId.slice(0, lastDot);
+    const exportName = handlerId.slice(lastDot + 1);
+    if (moduleId && exportName) {
+      return { moduleId, exportName };
+    }
+  }
+
+  return { moduleId: handlerId };
 }
 
 function resolveHandlerPath(handlerId: string): string {

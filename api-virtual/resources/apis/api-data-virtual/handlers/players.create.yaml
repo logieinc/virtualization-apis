@@ -1,0 +1,119 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: api_data_virtual_players_create
+    method: POST
+    path: /players
+    workflow:
+      steps:
+        - action: util.require
+          input:
+            condition: "{{body.externalReference}}"
+            status: 400
+            message: externalReference is required
+        - action: util.require
+          input:
+            condition: "{{body.affiliateId}}"
+            status: 400
+            message: affiliateId is required
+        - action: util.require
+          input:
+            condition: "{{body.fullName}}"
+            status: 400
+            message: fullName is required
+        - action: util.makeId
+          input:
+            prefix: plr
+            parts:
+              - "{{body.affiliateId}}"
+              - "{{body.externalReference}}"
+          saveAs: generatedId
+        - action: util.coalesce
+          input:
+            values:
+              - "{{body.id}}"
+              - "{{vars.generatedId}}"
+          saveAs: playerId
+        - action: util.coalesce
+          input:
+            values:
+              - "{{body.status}}"
+              - ACTIVE
+          saveAs: playerStatus
+        - action: util.coalesce
+          input:
+            values:
+              - "{{body.country}}"
+              - DO
+          saveAs: country
+        - action: util.coalesce
+          input:
+            values:
+              - "{{body.currency}}"
+              - DOP
+          saveAs: currency
+        - set: player
+          valueTemplate:
+            id: "{{vars.playerId}}"
+            externalReference: "{{body.externalReference}}"
+            affiliateId: "{{body.affiliateId}}"
+            referralCode: "{{body.referralCode}}"
+            fullName: "{{body.fullName}}"
+            email: "{{body.email}}"
+            status: "{{vars.playerStatus}}"
+            country: "{{vars.country}}"
+            currency: "{{vars.currency}}"
+            metadata:
+              source: api-data-virtual
+              generatedBy: workflow
+              requestId: "{{meta.requestId}}"
+            createdAt: "{{meta.now}}"
+            updatedAt: "{{meta.now}}"
+        - action: opensearch.index
+          input:
+            index: "{{resources.opensearch.indices.players}}"
+            id: "{{vars.playerId}}"
+            document: "{{vars.player}}"
+          saveAs: playerPersistResult
+        - action: util.generateNetwinSimulation
+          input:
+            playerId: "{{vars.playerId}}"
+            affiliateId: "{{body.affiliateId}}"
+            currency: "{{vars.currency}}"
+            now: "{{meta.now}}"
+            days: 14
+            betsPerDay: 3
+          saveAs: simulation
+        - action: opensearch.bulk
+          input:
+            index: "{{resources.opensearch.indices.playerNetwinDaily}}"
+            documents: "{{vars.simulation.dailyDocs}}"
+          saveAs: bulkDailyResult
+        - action: opensearch.bulk
+          input:
+            index: "{{resources.opensearch.indices.playerBets}}"
+            documents: "{{vars.simulation.betDocs}}"
+          saveAs: bulkBetsResult
+      response:
+        status: 201
+        bodyTemplate:
+          id: "{{vars.player.id}}"
+          externalReference: "{{vars.player.externalReference}}"
+          affiliateId: "{{vars.player.affiliateId}}"
+          referralCode: "{{vars.player.referralCode}}"
+          fullName: "{{vars.player.fullName}}"
+          email: "{{vars.player.email}}"
+          status: "{{vars.player.status}}"
+          country: "{{vars.player.country}}"
+          currency: "{{vars.player.currency}}"
+          metadata: "{{vars.player.metadata}}"
+          createdAt: "{{vars.player.createdAt}}"
+          updatedAt: "{{vars.player.updatedAt}}"
+          storage:
+            provider: opensearch
+            endpoint: "{{resources.opensearch.endpoint}}"
+            index: "{{resources.opensearch.indices.players}}"
+          simulation:
+            days: 14
+            dailyDocs: "{{vars.simulation.dailyDocs.length}}"
+            betDocs: "{{vars.simulation.betDocs.length}}"

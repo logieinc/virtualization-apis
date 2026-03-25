@@ -1,0 +1,113 @@
+# yaml-language-server: $schema=../../handlers.schema.json
+
+routes:
+  - operationId: api_data_virtual_metrics_overview
+    method: GET
+    path: /metrics/overview
+    workflow:
+      steps:
+        - action: util.buildFilters
+          input:
+            items:
+              - type: term
+                field: affiliateId
+                value: "{{query.affiliateId}}"
+          saveAs: playerFilters
+        - action: util.toBoolQuery
+          input:
+            filters: "{{vars.playerFilters}}"
+          saveAs: playerQuery
+        - action: opensearch.count
+          input:
+            index: "{{resources.opensearch.indices.players}}"
+            query: "{{vars.playerQuery}}"
+          saveAs: playersTotalCount
+        - action: util.buildFilters
+          input:
+            items:
+              - type: term
+                field: affiliateId
+                value: "{{query.affiliateId}}"
+              - type: term
+                field: status
+                value: ACTIVE
+          saveAs: activePlayerFilters
+        - action: util.toBoolQuery
+          input:
+            filters: "{{vars.activePlayerFilters}}"
+          saveAs: activePlayerQuery
+        - action: opensearch.count
+          input:
+            index: "{{resources.opensearch.indices.players}}"
+            query: "{{vars.activePlayerQuery}}"
+          saveAs: playersActiveCount
+        - action: util.math
+          input:
+            op: sub
+            a: "{{vars.playersTotalCount.count}}"
+            b: "{{vars.playersActiveCount.count}}"
+          saveAs: playersInactiveCount
+        - action: util.buildFilters
+          input:
+            items:
+              - type: term
+                field: affiliateId
+                value: "{{query.affiliateId}}"
+              - type: range
+                field: date
+                gte: "{{query.dateIn}}"
+                lte: "{{query.dateOut}}"
+          saveAs: dailyFilters
+        - action: util.toBoolQuery
+          input:
+            filters: "{{vars.dailyFilters}}"
+          saveAs: dailyQuery
+        - action: opensearch.search
+          input:
+            index: "{{resources.opensearch.indices.playerNetwinDaily}}"
+            body:
+              size: 0
+              query: "{{vars.dailyQuery}}"
+              aggs:
+                totalNetwin:
+                  sum:
+                    field: netwin
+                totalOperations:
+                  sum:
+                    field: operationCount
+                playersCount:
+                  cardinality:
+                    field: playerId
+                currencySample:
+                  terms:
+                    field: currency
+                    size: 1
+          saveAs: dailySummary
+        - action: util.coalesce
+          input:
+            values:
+              - "{{vars.dailySummary.aggregations.currencySample.buckets.0.key}}"
+              - DOP
+          saveAs: currency
+      response:
+        status: 200
+        bodyTemplate:
+          dateRange:
+            dateIn: "{{query.dateIn}}"
+            dateOut: "{{query.dateOut}}"
+          filters:
+            affiliateId: "{{query.affiliateId}}"
+          players:
+            total: "{{vars.playersTotalCount.count}}"
+            active: "{{vars.playersActiveCount.count}}"
+            inactive: "{{vars.playersInactiveCount}}"
+          netwin:
+            total: "{{vars.dailySummary.aggregations.totalNetwin.value}}"
+            currency: "{{vars.currency}}"
+            players: "{{vars.dailySummary.aggregations.playersCount.value}}"
+            operations: "{{vars.dailySummary.aggregations.totalOperations.value}}"
+          source:
+            provider: opensearch
+            endpoint: "{{resources.opensearch.endpoint}}"
+            playersIndex: "{{resources.opensearch.indices.players}}"
+            dailyIndex: "{{resources.opensearch.indices.playerNetwinDaily}}"
