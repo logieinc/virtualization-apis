@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import mysql from 'mysql2/promise';
 import type { HandlerContext, HandlerResult } from '../handlers/types';
 
 interface WorkflowResponse {
@@ -199,8 +200,14 @@ async function executeAction(
       return actionUtilToBoolQuery(input);
     case 'util.select':
       return actionUtilSelect(input);
+    case 'util.parseJson':
+      return actionUtilParseJson(input);
     case 'util.generateNetwinSimulation':
       return actionUtilGenerateNetwinSimulation(input, runtime, scope);
+    case 'mysql.query':
+      return actionMysqlQuery(input, runtime);
+    case 'mysql.first':
+      return actionMysqlFirst(input, runtime);
     case 'opensearch.search':
       return actionOpenSearchSearch(input, runtime);
     case 'opensearch.count':
@@ -220,6 +227,37 @@ async function executeAction(
         message: `Unknown workflow action: ${action}`
       });
   }
+}
+
+async function actionMysqlQuery(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<{ rows: unknown[]; rowCount: number }> {
+  const connectionOptions = resolveMysqlConnectionOptions(input, runtime.context.resources);
+  const sql = asString(input.sql, '').trim();
+  if (!sql) {
+    throw new WorkflowHttpError(500, { message: 'mysql.query requires sql' });
+  }
+  const params = normalizeSqlParams(input.params);
+  const connection = await mysql.createConnection(connectionOptions);
+  try {
+    const [rows] = await connection.query(sql, params as any);
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    return {
+      rows: normalizedRows as unknown[],
+      rowCount: normalizedRows.length
+    };
+  } finally {
+    await connection.end();
+  }
+}
+
+async function actionMysqlFirst(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<unknown | null> {
+  const result = await actionMysqlQuery(input, runtime);
+  return result.rows[0] ?? null;
 }
 
 function actionUtilMakeId(input: ActionInput): string {
@@ -386,6 +424,70 @@ function actionUtilSelect(input: ActionInput): unknown {
     return options[key];
   }
   return input.default;
+}
+
+function actionUtilParseJson(input: ActionInput): unknown {
+  const value = input.value;
+  if (typeof value !== 'string') {
+    return value ?? input.default ?? null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return input.default ?? null;
+  }
+}
+
+function resolveMysqlConnectionOptions(
+  input: ActionInput,
+  resources: Record<string, unknown>
+): mysql.ConnectionOptions {
+  const resourceName = asString(input.resource, 'mysql');
+  const resource = asRecord(resources[resourceName]);
+  const host = resolveEnvBackedString(resource, 'host', 'hostEnv', 'localhost');
+  const port = asNumber(resolveEnvBackedString(resource, 'port', 'portEnv', 3306), 3306);
+  const user = resolveEnvBackedString(resource, 'user', 'userEnv', 'root');
+  const password = resolveEnvBackedString(resource, 'password', 'passwordEnv', '');
+  const database = asString(input.database, '')
+    || resolveEnvBackedString(resource, 'database', 'databaseEnv', '');
+
+  return {
+    host,
+    port,
+    user,
+    password,
+    database: database || undefined,
+    namedPlaceholders: true,
+    decimalNumbers: false,
+    supportBigNumbers: true,
+    bigNumberStrings: true
+  };
+}
+
+function resolveEnvBackedString(
+  source: Record<string, unknown>,
+  valueKey: string,
+  envKey: string,
+  fallback: unknown
+): string {
+  const envName = asString(source[envKey], '');
+  if (envName) {
+    const envValue = process.env[envName];
+    if (envValue !== undefined && envValue !== '') {
+      return envValue;
+    }
+  }
+  return asString(source[valueKey], asString(fallback, ''));
+}
+
+function normalizeSqlParams(value: unknown): unknown[] | Record<string, unknown> {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (isRecord(value)) {
+    return value;
+  }
+  return [];
 }
 
 function actionUtilGenerateNetwinSimulation(

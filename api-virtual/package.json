@@ -12,6 +12,7 @@
   "dependencies": {
     "express": "^4.19.2",
     "morgan": "^1.10.0",
+    "mysql2": "^3.22.3",
     "swagger-ui-express": "^5.0.1",
     "yaml": "^2.4.1"
   },
