@@ -251,8 +251,8 @@ app.get('/virtual/apis/ui', (_req, res) => {
   const items = currentState.apis
     .map(api => {
       const description = api.description ?? api.openApi?.info?.description ?? '';
-      const docsUrl = `${api.basePath}/docs`;
-      const openApiUrl = `${api.basePath}/__meta/openapi`;
+      const docsUrl = apiUrl(api.basePath, '/docs');
+      const openApiUrl = apiUrl(api.basePath, '/__meta/openapi');
       return `
         <article class="card">
           <h2>${escapeHtml(api.name ?? api.id)}</h2>
@@ -408,6 +408,12 @@ function buildAppState(): {
   const apis = loadVirtualApis(resourcesRoots);
   const router = buildApisRouter(apis, sharedResources);
   return { sharedResources, apis, router };
+}
+
+function apiUrl(basePath: string, suffix: string): string {
+  const normalizedBase = basePath === '/' ? '' : basePath.replace(/\/+$/g, '');
+  const normalizedSuffix = suffix.startsWith('/') ? suffix : `/${suffix}`;
+  return `${normalizedBase}${normalizedSuffix}` || '/';
 }
 
 function buildApisRouter(apis: VirtualApi[], sharedResources: ResourcesConfig): Router {
