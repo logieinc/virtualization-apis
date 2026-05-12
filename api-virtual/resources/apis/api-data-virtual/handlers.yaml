@@ -1,8 +1,0 @@
-# yaml-language-server: $schema=../handlers.schema.json
-
-api:
-  name: API Data Virtual - Affiliations
-  basePath: /api-data-virtual/api/v1
-  description: Base virtual para simular players y métricas apoyadas en OpenSearch.
-
-routes: []

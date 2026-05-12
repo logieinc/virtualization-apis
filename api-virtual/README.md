@@ -9,27 +9,16 @@ api-virtual/
   resources/
     config.yaml              # Conexiones simuladas a recursos externos
     apis/
-      wallet/
-        openapi.yaml         # Especificación OAS
-        handlers.yaml        # Respuestas mock configurables
-      payments/
-        openapi.yaml
-        handlers.yaml
-      api-data-virtual/
-        openapi.yaml
-        handlers.yaml
-        handlers/
-          players.list.yaml
-          players.create.yaml
-          players.get.yaml
-          players.delete.yaml
-          metrics.overview.yaml
-          metrics.netwin.yaml
+      handlers.schema.json   # Schema para handlers declarativos
 ```
 
 - `openapi.yaml`: define paths y schemas (se usa para derivar `basePath` desde `servers[0].url`).
 - `handlers.yaml`: lista de rutas con `method`, `path` y `response` o `handler` (TS).
 - `config.yaml`: recursos disponibles para los templates (`resources.postgres`, `resources.opensearch`, etc.).
+
+Las APIs concretas viven en repositorios externos de stubs, por ejemplo
+`virtualization-apis-stubs-napa` o `virtualization-apis-stubs-mep`, y se montan
+con `VIRTUAL_RESOURCES_DIRS`.
 
 ### Workflows declarativos (sin código específico por endpoint)
 
