@@ -349,13 +349,14 @@ curl -X POST http://localhost:4000/virtual/reload
 
 Si querés desplegar solo algunas APIs por contenedor (recomendado para prod), podés usar:
 
+- `VIRTUAL_RESOURCES_DIRS`: lista separada por coma de directorios `resources` a cargar. Si no se define, usa `api-virtual/resources`. También se mantiene `VIRTUAL_RESOURCES_DIR` para un único directorio.
 - `VIRTUAL_APIS` (allowlist): lista separada por coma.
 - `VIRTUAL_APIS_EXCLUDE` (denylist): lista separada por coma.
 
 Ejemplo:
 
 ```bash
-VIRTUAL_APIS=api-data,api-wallet npm run dev
+VIRTUAL_RESOURCES_DIRS=./resources,/external-stubs/resources VIRTUAL_APIS=api-data,api-wallet,mep-bcra npm run dev
 ```
 
 Esto permite usar la misma imagen y definir qué APIs carga cada contenedor.

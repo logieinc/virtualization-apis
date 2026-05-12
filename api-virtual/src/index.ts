@@ -64,9 +64,8 @@ const HOT_RELOAD_ENABLED = (process.env.HOT_RELOAD_ENABLED ?? 'true').toLowerCas
 const HOT_RELOAD_INTERVAL_MS = Number(process.env.HOT_RELOAD_INTERVAL_MS ?? 2000);
 const VIRTUAL_APIS = parseCsvEnv(process.env.VIRTUAL_APIS);
 const VIRTUAL_APIS_EXCLUDE = parseCsvEnv(process.env.VIRTUAL_APIS_EXCLUDE);
-const resourcesRoot = process.env.VIRTUAL_RESOURCES_DIR
-  ? path.resolve(process.env.VIRTUAL_RESOURCES_DIR)
-  : path.resolve(__dirname, '..', 'resources');
+const defaultResourcesRoot = path.resolve(__dirname, '..', 'resources');
+const resourcesRoots = resolveResourcesRoots();
 const assetsRoot = path.resolve(__dirname, '..', 'public', 'assets');
 const handlersRoot = path.resolve(__dirname, 'handlers');
 const swaggerCss = `
@@ -191,7 +190,7 @@ if (TIMING_ENABLED || TIMING_LOG) {
   });
 }
 
-log('info', `Resources root: ${resourcesRoot}`);
+log('info', `Resources roots: ${resourcesRoots.join(', ')}`);
 log('info', `Swagger enabled: ${SWAGGER_ENABLED ? 'true' : 'false'}`);
 log('info', `Timing enabled: ${TIMING_ENABLED ? 'true' : 'false'}`);
 log('info', `Timing log: ${TIMING_LOG ? 'true' : 'false'}`);
@@ -364,9 +363,9 @@ app.post('/virtual/reload', (_req, res) => {
 });
 
 if (HOT_RELOAD_ENABLED) {
-  lastResourcesFingerprint = fingerprintResources(resourcesRoot);
+  lastResourcesFingerprint = fingerprintResources(resourcesRoots);
   setInterval(() => {
-    const nextFingerprint = fingerprintResources(resourcesRoot);
+    const nextFingerprint = fingerprintResources(resourcesRoots);
     if (nextFingerprint !== lastResourcesFingerprint) {
       reloadResources('watch');
     }
@@ -380,7 +379,7 @@ app.use((_req, res) => {
 app.listen(DEFAULT_PORT, () => {
   // eslint-disable-next-line no-console
   console.log(
-    `[api-virtual] Serving ${currentState.apis.length} API(s) from ${resourcesRoot} on port ${DEFAULT_PORT}`
+    `[api-virtual] Serving ${currentState.apis.length} API(s) from ${resourcesRoots.join(', ')} on port ${DEFAULT_PORT}`
   );
 });
 
@@ -390,7 +389,7 @@ function reloadResources(trigger: 'watch' | 'manual'): boolean {
     currentState = nextState;
     currentRouter = nextState.router;
     handlerCache.clear();
-    lastResourcesFingerprint = fingerprintResources(resourcesRoot);
+    lastResourcesFingerprint = fingerprintResources(resourcesRoots);
     log('info', `Reloaded resources (${trigger})`);
     return true;
   } catch (error) {
@@ -405,8 +404,8 @@ function buildAppState(): {
   apis: VirtualApi[];
   router: Router;
 } {
-  const sharedResources = loadResourcesConfig(resourcesRoot);
-  const apis = loadVirtualApis(resourcesRoot);
+  const sharedResources = loadResourcesConfig(resourcesRoots);
+  const apis = loadVirtualApis(resourcesRoots);
   const router = buildApisRouter(apis, sharedResources);
   return { sharedResources, apis, router };
 }
@@ -420,8 +419,8 @@ function buildApisRouter(apis: VirtualApi[], sharedResources: ResourcesConfig): 
   return router;
 }
 
-function fingerprintResources(root: string): string {
-  const files = collectYamlFiles(root);
+function fingerprintResources(roots: string[]): string {
+  const files = roots.flatMap(root => collectYamlFiles(root));
   return files
     .map(file => {
       try {
@@ -595,10 +594,12 @@ function escapeHtml(input: string) {
   });
 }
 
-function loadResourcesConfig(root: string): ResourcesConfig {
-  const configPath = path.join(root, 'config.yaml');
-  if (!fs.existsSync(configPath)) {
-    log('warn', `Resources config not found at ${configPath}`);
+function loadResourcesConfig(roots: string[]): ResourcesConfig {
+  const configPath = roots
+    .map(root => path.join(root, 'config.yaml'))
+    .find(candidate => fs.existsSync(candidate));
+  if (!configPath) {
+    log('warn', `Resources config not found under ${roots.join(', ')}`);
     return {};
   }
   const parsed = parseYamlFile<ResourcesConfig>(configPath);
@@ -610,7 +611,20 @@ function loadResourcesConfig(root: string): ResourcesConfig {
   return parsed;
 }
 
-function loadVirtualApis(root: string): VirtualApi[] {
+function loadVirtualApis(roots: string[]): VirtualApi[] {
+  const apis = roots.flatMap(root => loadVirtualApisFromRoot(root));
+  const seen = new Set<string>();
+  return apis.filter(api => {
+    if (seen.has(api.id)) {
+      log('warn', `Ignoring duplicate API id ${api.id} from ${api.openApiPath}`);
+      return false;
+    }
+    seen.add(api.id);
+    return true;
+  });
+}
+
+function loadVirtualApisFromRoot(root: string): VirtualApi[] {
   const apisDir = path.join(root, 'apis');
   if (!fs.existsSync(apisDir)) {
     log('warn', `APIs directory not found at ${apisDir}`);
@@ -675,6 +689,18 @@ function loadVirtualApis(root: string): VirtualApi[] {
       handlers
     };
   });
+}
+
+function resolveResourcesRoots(): string[] {
+  const raw = process.env.VIRTUAL_RESOURCES_DIRS ?? process.env.VIRTUAL_RESOURCES_DIR;
+  if (!raw) {
+    return [defaultResourcesRoot];
+  }
+  return raw
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+    .map(item => path.resolve(item));
 }
 
 function parseCsvEnv(value?: string): string[] {
