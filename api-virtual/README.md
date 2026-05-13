@@ -193,6 +193,12 @@ Carga de seeds:
 node api-virtual/scripts/load-state-seeds.mjs ../virtualization-apis-stubs-mep/resources/state
 ```
 
+Al arrancar, `api-virtual` también busca `state/*.json` dentro de cada `VIRTUAL_RESOURCES_DIRS` y los carga automáticamente. Para desactivarlo:
+
+```bash
+VIRTUAL_STATE_AUTO_LOAD_SEEDS=false npm run dev
+```
+
 Variables soportadas por el loader:
 - `VIRTUAL_STATE_MONGO_URI` o `MONGO_URI`
 - `VIRTUAL_STATE_MONGO_DATABASE`

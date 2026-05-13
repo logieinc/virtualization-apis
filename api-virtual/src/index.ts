@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { parse as parseYaml } from 'yaml';
 import swaggerUi from 'swagger-ui-express';
+import { MongoClient } from 'mongodb';
 import type { HandlerContext, HandlerFn, HandlerResult } from './handlers/types';
 import {
   executeWorkflow,
@@ -62,6 +63,8 @@ const TIMING_LOG = (process.env.TIMING_LOG ?? 'false').toLowerCase() === 'true';
 const TIMING_HEADER = process.env.TIMING_HEADER ?? 'x-virtual-response-time-ms';
 const HOT_RELOAD_ENABLED = (process.env.HOT_RELOAD_ENABLED ?? 'true').toLowerCase() !== 'false';
 const HOT_RELOAD_INTERVAL_MS = Number(process.env.HOT_RELOAD_INTERVAL_MS ?? 2000);
+const VIRTUAL_STATE_AUTO_LOAD_SEEDS =
+  (process.env.VIRTUAL_STATE_AUTO_LOAD_SEEDS ?? 'true').toLowerCase() !== 'false';
 const VIRTUAL_APIS = parseCsvEnv(process.env.VIRTUAL_APIS);
 const VIRTUAL_APIS_EXCLUDE = parseCsvEnv(process.env.VIRTUAL_APIS_EXCLUDE);
 const defaultResourcesRoot = path.resolve(__dirname, '..', 'resources');
@@ -195,6 +198,7 @@ log('info', `Swagger enabled: ${SWAGGER_ENABLED ? 'true' : 'false'}`);
 log('info', `Timing enabled: ${TIMING_ENABLED ? 'true' : 'false'}`);
 log('info', `Timing log: ${TIMING_LOG ? 'true' : 'false'}`);
 log('info', `Hot reload: ${HOT_RELOAD_ENABLED ? 'true' : 'false'}`);
+log('info', `Virtual state seed autoload: ${VIRTUAL_STATE_AUTO_LOAD_SEEDS ? 'true' : 'false'}`);
 if (VIRTUAL_APIS.length > 0) {
   log('info', `API allowlist: ${VIRTUAL_APIS.join(', ')}`);
 }
@@ -207,6 +211,7 @@ let currentState = buildAppState();
 let currentRouter = currentState.router;
 
 log('info', `Loaded ${currentState.apis.length} API(s)`);
+void loadVirtualStateSeeds(resourcesRoots, currentState.sharedResources);
 
 app.use((req, res, next) => currentRouter(req, res, next));
 
@@ -391,6 +396,7 @@ function reloadResources(trigger: 'watch' | 'manual'): boolean {
     handlerCache.clear();
     lastResourcesFingerprint = fingerprintResources(resourcesRoots);
     log('info', `Reloaded resources (${trigger})`);
+    void loadVirtualStateSeeds(resourcesRoots, currentState.sharedResources);
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -426,7 +432,7 @@ function buildApisRouter(apis: VirtualApi[], sharedResources: ResourcesConfig): 
 }
 
 function fingerprintResources(roots: string[]): string {
-  const files = roots.flatMap(root => collectYamlFiles(root));
+  const files = roots.flatMap(root => collectResourceFiles(root));
   return files
     .map(file => {
       try {
@@ -440,7 +446,7 @@ function fingerprintResources(roots: string[]): string {
     .join('|');
 }
 
-function collectYamlFiles(dir: string): string[] {
+function collectResourceFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) {
     return [];
   }
@@ -449,12 +455,146 @@ function collectYamlFiles(dir: string): string[] {
   entries.forEach(entry => {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...collectYamlFiles(fullPath));
-    } else if (entry.isFile() && (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml'))) {
+      results.push(...collectResourceFiles(fullPath));
+    } else if (
+      entry.isFile() &&
+      (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml') || entry.name.endsWith('.json'))
+    ) {
       results.push(fullPath);
     }
   });
   return results;
+}
+
+async function loadVirtualStateSeeds(roots: string[], sharedConfig: ResourcesConfig): Promise<void> {
+  if (!VIRTUAL_STATE_AUTO_LOAD_SEEDS) {
+    return;
+  }
+
+  const files = roots.flatMap(root => collectJsonFiles(path.join(root, 'state')));
+  if (files.length === 0) {
+    return;
+  }
+
+  const documents = files.flatMap(file => readStateSeedDocuments(file));
+  if (documents.length === 0) {
+    return;
+  }
+
+  const options = resolveMongoStateOptions(sharedConfig.resources ?? {});
+  const client = new MongoClient(options.uri);
+  try {
+    await client.connect();
+    const collection = client.db(options.database).collection(options.stateCollection);
+    await collection.createIndex({ api: 1, collection: 1, key: 1 }, { unique: true });
+    await collection.createIndex({ api: 1, collection: 1 });
+    await collection.createIndex({ api: 1, collection: 1, appId: 1 });
+    const now = new Date().toISOString();
+    for (const raw of documents) {
+      const doc = isRecord(raw) ? { ...raw } : {};
+      const api = asString(doc.api, '');
+      const stateCollection = asString(doc.collection, '');
+      const key = asString(doc.key, '');
+      if (!api || !stateCollection || !key) {
+        throw new Error(`State document requires api, collection, and key: ${JSON.stringify(raw)}`);
+      }
+      doc.updatedAt = doc.updatedAt ?? now;
+      await collection.updateOne(
+        { api, collection: stateCollection, key },
+        {
+          $set: doc,
+          $setOnInsert: { createdAt: doc.createdAt ?? now }
+        },
+        { upsert: true }
+      );
+    }
+    log(
+      'info',
+      `Loaded ${documents.length} virtual state seed document(s) from ${files.length} file(s)`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Virtual state seed autoload failed: ${message}`);
+  } finally {
+    await client.close();
+  }
+}
+
+function collectJsonFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const results: string[] = [];
+  entries.forEach(entry => {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...collectJsonFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.json')) {
+      results.push(fullPath);
+    }
+  });
+  return results.sort((a, b) => a.localeCompare(b));
+}
+
+function readStateSeedDocuments(filePath: string): unknown[] {
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (Array.isArray(parsed?.documents)) {
+    return parsed.documents;
+  }
+  throw new Error(`State seed must be an array or { "documents": [] }: ${filePath}`);
+}
+
+function resolveMongoStateOptions(resources: Record<string, unknown>): {
+  uri: string;
+  database: string;
+  stateCollection: string;
+} {
+  const resource = asRecord(resources.virtualStateMongo);
+  const configuredUri = resolveEnvBackedString(resource, 'uri', 'uriEnv', '');
+  const database = resolveEnvBackedString(resource, 'database', 'databaseEnv', 'virtual');
+  const stateCollection = resolveEnvBackedString(
+    resource,
+    'stateCollection',
+    'stateCollectionEnv',
+    'virtual_state'
+  );
+  if (configuredUri) {
+    return { uri: configuredUri, database, stateCollection };
+  }
+
+  const host = resolveEnvBackedString(resource, 'host', 'hostEnv', 'localhost');
+  const port = asNumber(resolveEnvBackedString(resource, 'port', 'portEnv', 27017), 27017);
+  const user = encodeURIComponent(resolveEnvBackedString(resource, 'user', 'userEnv', ''));
+  const password = encodeURIComponent(resolveEnvBackedString(resource, 'password', 'passwordEnv', ''));
+  const authSource = encodeURIComponent(
+    resolveEnvBackedString(resource, 'authSource', 'authSourceEnv', 'admin')
+  );
+  const credentials = user ? `${user}:${password}@` : '';
+  return {
+    uri: `mongodb://${credentials}${host}:${port}/${database}?authSource=${authSource}`,
+    database,
+    stateCollection
+  };
+}
+
+function resolveEnvBackedString(
+  source: Record<string, unknown>,
+  valueKey: string,
+  envKey: string,
+  fallback: unknown
+): string {
+  const envName = asString(source[envKey], '');
+  if (envName) {
+    const envValue = process.env[envName];
+    if (envValue !== undefined && envValue !== '') {
+      return envValue;
+    }
+  }
+  return asString(source[valueKey], asString(fallback, ''));
 }
 
 function buildApiRouter(api: VirtualApi, sharedConfig: ResourcesConfig): Router {
@@ -936,4 +1076,24 @@ function sendResponseBody(res: Response, status: number, body: unknown) {
     return;
   }
   res.status(status).json(body);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function asString(value: unknown, fallback: string): string {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  return String(value);
+}
+
+function asNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
