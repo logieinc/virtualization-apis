@@ -278,7 +278,7 @@ async function actionStubResolveCase(
     {
       resource,
       sql: `
-        SELECT id, priority, match_json, response_status, response_headers, response_payload
+        SELECT id, priority, match_json
         FROM stub_cases
         WHERE enabled = 1
           AND api_id = :api
@@ -297,14 +297,27 @@ async function actionStubResolveCase(
     if (!matchesRequest(matcher, runtime)) {
       continue;
     }
+    const payloadResult = await actionMysqlFirst(
+      {
+        resource,
+        sql: `
+          SELECT response_status, response_headers, response_payload
+          FROM stub_cases
+          WHERE id = :id
+        `,
+        params: { id: candidate.id }
+      },
+      runtime
+    );
+    const payloadRow = asRecord(payloadResult);
     return {
       caseId: asNumber(candidate.id, 0),
-      status: asNumber(candidate.response_status, 200),
+      status: asNumber(payloadRow.response_status, 200),
       headers: {
         'content-type': 'application/json; charset=UTF-8',
-        ...parseJsonObject(candidate.response_headers)
+        ...parseJsonObject(payloadRow.response_headers)
       },
-      body: parseJsonValue(candidate.response_payload)
+      body: parseJsonValue(payloadRow.response_payload)
     };
   }
 
