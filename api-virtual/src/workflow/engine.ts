@@ -223,10 +223,14 @@ async function executeAction(
       return actionMysqlFirst(input, runtime);
     case 'stub.resolveCase':
       return actionStubResolveCase(input, runtime);
+    case 'virtual.state.resolveCase':
+      return actionVirtualStateResolveCase(input, runtime);
     case 'virtual.state.findOne':
       return actionVirtualStateFindOne(input, runtime);
     case 'virtual.state.findMany':
       return actionVirtualStateFindMany(input, runtime);
+    case 'virtual.state.count':
+      return actionVirtualStateCount(input, runtime);
     case 'virtual.state.upsertOne':
       return actionVirtualStateUpsertOne(input, runtime);
     case 'virtual.state.deleteOne':
@@ -361,13 +365,29 @@ async function actionVirtualStateFindMany(
   const { client, options } = await getMongoClient(input, runtime.context.resources);
   const query = buildVirtualStateQuery(input);
   const limit = clamp(asNumber(input.limit, 100), 1, 1000);
+  const skip = Math.max(0, asNumber(input.skip ?? input.offset, 0));
+  const sort = asRecord(input.sort) as Record<string, 1 | -1>;
   const docs = await client
     .db(options.database)
     .collection(options.stateCollection)
     .find(query)
+    .sort(sort)
+    .skip(skip)
     .limit(limit)
     .toArray();
   return docs.map(doc => projectVirtualStateDocument(doc, input));
+}
+
+async function actionVirtualStateCount(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<number> {
+  const { client, options } = await getMongoClient(input, runtime.context.resources);
+  const query = buildVirtualStateQuery(input);
+  return client
+    .db(options.database)
+    .collection(options.stateCollection)
+    .countDocuments(query);
 }
 
 async function actionVirtualStateUpsertOne(
@@ -449,6 +469,22 @@ function buildVirtualStateQuery(input: ActionInput): Record<string, unknown> {
       query[name] = value;
     }
   }
+  const whereAny = Array.isArray(input.whereAny) ? input.whereAny : [];
+  const orConditions = whereAny
+    .map(item => asRecord(item))
+    .map(item => {
+      const condition: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(item)) {
+        if (value !== undefined && value !== null && value !== '') {
+          condition[name] = value;
+        }
+      }
+      return condition;
+    })
+    .filter(item => Object.keys(item).length > 0);
+  if (orConditions.length > 0) {
+    query.$or = orConditions;
+  }
   return query;
 }
 
@@ -461,6 +497,48 @@ function projectVirtualStateDocument(doc: unknown, input: ActionInput): unknown 
     return omitKeys(doc, ['_id']);
   }
   return doc.data ?? null;
+}
+
+async function actionVirtualStateResolveCase(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<{ status: number; headers: Record<string, string>; body: unknown; caseId?: string } | null> {
+  const { client, options } = await getMongoClient(input, runtime.context.resources);
+  const api = asString(input.api, '');
+  const method = asString(input.method, runtime.context.req.method).toUpperCase();
+  const pathTemplate = asString(input.path, runtime.context.req.route?.path ?? runtime.context.req.path);
+  const docs = await client
+    .db(options.database)
+    .collection(options.stateCollection)
+    .find({
+      api,
+      collection: 'cases',
+      method,
+      pathTemplate,
+      enabled: { $ne: false }
+    })
+    .sort({ priority: -1, key: 1 })
+    .limit(100)
+    .toArray();
+
+  for (const doc of docs) {
+    const candidate = asRecord(doc);
+    const matcher = asRecord(candidate.match);
+    if (!matchesRequest(matcher, runtime)) {
+      continue;
+    }
+    return {
+      caseId: asString(candidate.key, ''),
+      status: asNumber(candidate.status, 200),
+      headers: {
+        'content-type': 'application/json; charset=UTF-8',
+        ...asStringRecord(candidate.headers)
+      },
+      body: candidate.data ?? null
+    };
+  }
+
+  return null;
 }
 
 function matchesRequest(matcher: Record<string, unknown>, runtime: WorkflowRuntime): boolean {

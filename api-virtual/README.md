@@ -169,9 +169,11 @@ Estas acciones usan por defecto `resource: virtualStateMongo` y guardan document
 | Acción | Propósito | Input principal | Output típico |
 |---|---|---|---|
 | `virtual.state.findOne` | Buscar un documento | `api`, `collection`, `key` o `where` | `data` o `null` |
-| `virtual.state.findMany` | Buscar varios documentos | `api`, `collection`, `where`, `limit` | `data[]` |
+| `virtual.state.findMany` | Buscar varios documentos | `api`, `collection`, `where`, `whereAny`, `sort`, `offset`, `limit` | `data[]` |
+| `virtual.state.count` | Contar documentos | `api`, `collection`, `where`, `whereAny` | `number` |
 | `virtual.state.upsertOne` | Crear o reemplazar estado | `api`, `collection`, `key`, `data`, `fields` | `{ matched, modified, upserted, id }` |
 | `virtual.state.deleteOne` | Borrar estado | `api`, `collection`, `key` o `where` | `{ deleted, deletedCount }` |
+| `virtual.state.resolveCase` | Resolver casos estáticos migrados a Mongo | `api`, `method`, `path` | `{ status, headers, body, caseId }` o `null` |
 
 Si necesitás recibir el documento completo en vez de `data`, usá `select: document`.
 
