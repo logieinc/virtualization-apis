@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import { MongoClient } from 'mongodb';
 import mysql from 'mysql2/promise';
 import type { HandlerContext, HandlerResult } from '../handlers/types';
 
@@ -63,6 +64,14 @@ interface OpensearchResponse {
   status: number;
   body: unknown;
 }
+
+interface MongoConnectionOptions {
+  uri: string;
+  database: string;
+  stateCollection: string;
+}
+
+const mongoClients = new Map<string, MongoClient>();
 
 export class WorkflowHttpError extends Error {
   status: number;
@@ -214,6 +223,14 @@ async function executeAction(
       return actionMysqlFirst(input, runtime);
     case 'stub.resolveCase':
       return actionStubResolveCase(input, runtime);
+    case 'virtual.state.findOne':
+      return actionVirtualStateFindOne(input, runtime);
+    case 'virtual.state.findMany':
+      return actionVirtualStateFindMany(input, runtime);
+    case 'virtual.state.upsertOne':
+      return actionVirtualStateUpsertOne(input, runtime);
+    case 'virtual.state.deleteOne':
+      return actionVirtualStateDeleteOne(input, runtime);
     case 'opensearch.search':
       return actionOpenSearchSearch(input, runtime);
     case 'opensearch.count':
@@ -322,6 +339,128 @@ async function actionStubResolveCase(
   }
 
   return null;
+}
+
+async function actionVirtualStateFindOne(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<unknown | null> {
+  const { client, options } = await getMongoClient(input, runtime.context.resources);
+  const query = buildVirtualStateQuery(input);
+  const doc = await client
+    .db(options.database)
+    .collection(options.stateCollection)
+    .findOne(query);
+  return projectVirtualStateDocument(doc, input);
+}
+
+async function actionVirtualStateFindMany(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<unknown[]> {
+  const { client, options } = await getMongoClient(input, runtime.context.resources);
+  const query = buildVirtualStateQuery(input);
+  const limit = clamp(asNumber(input.limit, 100), 1, 1000);
+  const docs = await client
+    .db(options.database)
+    .collection(options.stateCollection)
+    .find(query)
+    .limit(limit)
+    .toArray();
+  return docs.map(doc => projectVirtualStateDocument(doc, input));
+}
+
+async function actionVirtualStateUpsertOne(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<{ matched: number; modified: number; upserted: boolean; id: unknown }> {
+  const { client, options } = await getMongoClient(input, runtime.context.resources);
+  const api = asString(input.api, '');
+  const collectionName = asString(input.collection, '');
+  const key = asString(input.key, '');
+  if (!api || !collectionName || !key) {
+    throw new WorkflowHttpError(500, {
+      message: 'virtual.state.upsertOne requires api, collection, and key'
+    });
+  }
+  const data = input.data ?? input.document ?? {};
+  const extra = omitKeys(asRecord(input.fields), ['_id', 'api', 'collection', 'key', 'data']);
+  const now = runtime.context.meta.now;
+  const doc = {
+    ...extra,
+    api,
+    collection: collectionName,
+    key,
+    data,
+    updatedAt: now
+  };
+  const result = await client
+    .db(options.database)
+    .collection(options.stateCollection)
+    .updateOne(
+      { api, collection: collectionName, key },
+      {
+        $set: doc,
+        $setOnInsert: { createdAt: now }
+      },
+      { upsert: true }
+    );
+  return {
+    matched: result.matchedCount,
+    modified: result.modifiedCount,
+    upserted: Boolean(result.upsertedId),
+    id: result.upsertedId ?? key
+  };
+}
+
+async function actionVirtualStateDeleteOne(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<{ deleted: boolean; deletedCount: number }> {
+  const { client, options } = await getMongoClient(input, runtime.context.resources);
+  const query = buildVirtualStateQuery(input);
+  const result = await client
+    .db(options.database)
+    .collection(options.stateCollection)
+    .deleteOne(query);
+  return {
+    deleted: result.deletedCount > 0,
+    deletedCount: result.deletedCount
+  };
+}
+
+function buildVirtualStateQuery(input: ActionInput): Record<string, unknown> {
+  const query: Record<string, unknown> = {};
+  const api = asString(input.api, '');
+  const collectionName = asString(input.collection, '');
+  const key = asString(input.key, '');
+  if (api) {
+    query.api = api;
+  }
+  if (collectionName) {
+    query.collection = collectionName;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'key')) {
+    query.key = key;
+  }
+  const where = asRecord(input.where);
+  for (const [name, value] of Object.entries(where)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query[name] = value;
+    }
+  }
+  return query;
+}
+
+function projectVirtualStateDocument(doc: unknown, input: ActionInput): unknown | null {
+  if (!isRecord(doc)) {
+    return null;
+  }
+  const select = asString(input.select, 'data');
+  if (select === 'document') {
+    return omitKeys(doc, ['_id']);
+  }
+  return doc.data ?? null;
 }
 
 function matchesRequest(matcher: Record<string, unknown>, runtime: WorkflowRuntime): boolean {
@@ -563,6 +702,49 @@ function resolveMysqlConnectionOptions(
     decimalNumbers: false,
     supportBigNumbers: true,
     bigNumberStrings: true
+  };
+}
+
+async function getMongoClient(
+  input: ActionInput,
+  resources: Record<string, unknown>
+): Promise<{ client: MongoClient; options: MongoConnectionOptions }> {
+  const options = resolveMongoConnectionOptions(input, resources);
+  let client = mongoClients.get(options.uri);
+  if (!client) {
+    client = new MongoClient(options.uri);
+    mongoClients.set(options.uri, client);
+  }
+  await client.connect();
+  return { client, options };
+}
+
+function resolveMongoConnectionOptions(
+  input: ActionInput,
+  resources: Record<string, unknown>
+): MongoConnectionOptions {
+  const resourceName = asString(input.resource, 'virtualStateMongo');
+  const resource = asRecord(resources[resourceName]);
+  const configuredUri = resolveEnvBackedString(resource, 'uri', 'uriEnv', '');
+  const database = asString(input.database, '')
+    || resolveEnvBackedString(resource, 'database', 'databaseEnv', 'virtual');
+  const stateCollection = asString(input.stateCollection, '')
+    || resolveEnvBackedString(resource, 'stateCollection', 'stateCollectionEnv', 'virtual_state');
+
+  if (configuredUri) {
+    return { uri: configuredUri, database, stateCollection };
+  }
+
+  const host = resolveEnvBackedString(resource, 'host', 'hostEnv', 'localhost');
+  const port = asNumber(resolveEnvBackedString(resource, 'port', 'portEnv', 27017), 27017);
+  const user = encodeURIComponent(resolveEnvBackedString(resource, 'user', 'userEnv', ''));
+  const password = encodeURIComponent(resolveEnvBackedString(resource, 'password', 'passwordEnv', ''));
+  const authSource = encodeURIComponent(resolveEnvBackedString(resource, 'authSource', 'authSourceEnv', 'admin'));
+  const credentials = user ? `${user}:${password}@` : '';
+  return {
+    uri: `mongodb://${credentials}${host}:${port}/${database}?authSource=${authSource}`,
+    database,
+    stateCollection
   };
 }
 

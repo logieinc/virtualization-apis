@@ -153,6 +153,51 @@ Formato de `documents[]` en `opensearch.bulk`:
 - Variante 1: `{ id: "...", document: { ... } }`
 - Variante 2: `{ id: "...", campoA: "...", campoB: 1 }` (usa el resto de campos como body)
 
+#### Acciones `virtual.state.*` (estado document-oriented)
+
+Estas acciones usan por defecto `resource: virtualStateMongo` y guardan documentos en una colección genérica. El contrato mínimo de cada documento es:
+
+```json
+{
+  "api": "idm",
+  "collection": "users",
+  "key": "A127216",
+  "data": {}
+}
+```
+
+| Acción | Propósito | Input principal | Output típico |
+|---|---|---|---|
+| `virtual.state.findOne` | Buscar un documento | `api`, `collection`, `key` o `where` | `data` o `null` |
+| `virtual.state.findMany` | Buscar varios documentos | `api`, `collection`, `where`, `limit` | `data[]` |
+| `virtual.state.upsertOne` | Crear o reemplazar estado | `api`, `collection`, `key`, `data`, `fields` | `{ matched, modified, upserted, id }` |
+| `virtual.state.deleteOne` | Borrar estado | `api`, `collection`, `key` o `where` | `{ deleted, deletedCount }` |
+
+Si necesitás recibir el documento completo en vez de `data`, usá `select: document`.
+
+Ejemplo:
+
+```yaml
+- action: virtual.state.findOne
+  input:
+    resource: virtualStateMongo
+    api: idm
+    collection: user-roles
+    key: "{{ params.appId }}:{{ params.ivUser }}"
+  saveAs: payload
+```
+
+Carga de seeds:
+
+```bash
+node api-virtual/scripts/load-state-seeds.mjs ../virtualization-apis-stubs-mep/resources/state
+```
+
+Variables soportadas por el loader:
+- `VIRTUAL_STATE_MONGO_URI` o `MONGO_URI`
+- `VIRTUAL_STATE_MONGO_DATABASE`
+- `VIRTUAL_STATE_MONGO_COLLECTION`
+
 #### Ejemplo práctico (alta + simulación)
 
 ```yaml
