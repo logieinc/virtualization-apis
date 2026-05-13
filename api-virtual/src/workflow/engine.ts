@@ -3,8 +3,8 @@ import mysql from 'mysql2/promise';
 import type { HandlerContext, HandlerResult } from '../handlers/types';
 
 interface WorkflowResponse {
-  status?: number;
-  headers?: Record<string, string>;
+  status?: unknown;
+  headers?: unknown;
   body?: unknown;
   bodyTemplate?: unknown;
 }
@@ -88,8 +88,10 @@ export async function executeWorkflow(
   await executeSteps(workflow.steps ?? [], runtime, {});
 
   const response = workflow.response ?? {};
-  const status = response.status ?? 200;
-  const headers = response.headers ?? {};
+  const rawStatus =
+    response.status !== undefined ? resolveTemplate(response.status, runtime, {}) : 200;
+  const status = asNumber(rawStatus, 200);
+  const headers = asStringRecord(resolveTemplate(response.headers ?? {}, runtime, {}));
   const body =
     response.bodyTemplate !== undefined
       ? resolveTemplate(response.bodyTemplate, runtime, {})
@@ -202,12 +204,16 @@ async function executeAction(
       return actionUtilSelect(input);
     case 'util.parseJson':
       return actionUtilParseJson(input);
+    case 'util.toJson':
+      return actionUtilToJson(input);
     case 'util.generateNetwinSimulation':
       return actionUtilGenerateNetwinSimulation(input, runtime, scope);
     case 'mysql.query':
       return actionMysqlQuery(input, runtime);
     case 'mysql.first':
       return actionMysqlFirst(input, runtime);
+    case 'stub.resolveCase':
+      return actionStubResolveCase(input, runtime);
     case 'opensearch.search':
       return actionOpenSearchSearch(input, runtime);
     case 'opensearch.count':
@@ -258,6 +264,85 @@ async function actionMysqlFirst(
 ): Promise<unknown | null> {
   const result = await actionMysqlQuery(input, runtime);
   return result.rows[0] ?? null;
+}
+
+async function actionStubResolveCase(
+  input: ActionInput,
+  runtime: WorkflowRuntime
+): Promise<{ status: number; headers: Record<string, string>; body: unknown; caseId?: number } | null> {
+  const resource = asString(input.resource, 'stubRuntimeMysql');
+  const api = asString(input.api, '');
+  const method = asString(input.method, runtime.context.req.method).toUpperCase();
+  const pathTemplate = asString(input.path, runtime.context.req.route?.path ?? runtime.context.req.path);
+  const result = await actionMysqlQuery(
+    {
+      resource,
+      sql: `
+        SELECT id, priority, match_json, response_status, response_headers, response_payload
+        FROM stub_cases
+        WHERE enabled = 1
+          AND api_id = :api
+          AND method = :method
+          AND path_template = :pathTemplate
+        ORDER BY priority DESC, id ASC
+      `,
+      params: { api, method, pathTemplate }
+    },
+    runtime
+  );
+
+  for (const row of result.rows) {
+    const candidate = asRecord(row);
+    const matcher = parseJsonObject(candidate.match_json);
+    if (!matchesRequest(matcher, runtime)) {
+      continue;
+    }
+    return {
+      caseId: asNumber(candidate.id, 0),
+      status: asNumber(candidate.response_status, 200),
+      headers: {
+        'content-type': 'application/json; charset=UTF-8',
+        ...parseJsonObject(candidate.response_headers)
+      },
+      body: parseJsonValue(candidate.response_payload)
+    };
+  }
+
+  return null;
+}
+
+function matchesRequest(matcher: Record<string, unknown>, runtime: WorkflowRuntime): boolean {
+  const context = {
+    params: runtime.context.params,
+    query: runtime.context.query,
+    body: runtime.context.body
+  };
+  for (const [pathValue, expected] of Object.entries(matcher)) {
+    const actual = getByPath(context, pathValue);
+    if (expected === undefined || expected === null || expected === '') {
+      continue;
+    }
+    if (String(actual ?? '') !== String(expected)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  const parsed = parseJsonValue(value);
+  return isRecord(parsed) ? parsed : {};
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value ?? null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return value;
+  }
 }
 
 function actionUtilMakeId(input: ActionInput): string {
@@ -436,6 +521,10 @@ function actionUtilParseJson(input: ActionInput): unknown {
   } catch (_error) {
     return input.default ?? null;
   }
+}
+
+function actionUtilToJson(input: ActionInput): string {
+  return JSON.stringify(input.value ?? null);
 }
 
 function resolveMysqlConnectionOptions(
@@ -1088,6 +1177,15 @@ function asString(value: unknown, fallback: string): string {
     return String(value);
   }
   return fallback;
+}
+
+function asStringRecord(value: unknown): Record<string, string> {
+  const source = asRecord(value);
+  const result: Record<string, string> = {};
+  Object.entries(source).forEach(([key, item]) => {
+    result[key] = asString(item, '');
+  });
+  return result;
 }
 
 function asNumber(value: unknown, fallback: number): number {

@@ -12,7 +12,7 @@ import {
 } from './workflow/engine';
 
 interface HandlerResponse {
-  status?: number;
+  status?: number | unknown;
   headers?: Record<string, string>;
   body?: unknown;
   bodyTemplate?: unknown;
@@ -567,8 +567,9 @@ function buildApiRouter(api: VirtualApi, sharedConfig: ResourcesConfig): Router 
         return;
       }
 
-      const status = response.status ?? 200;
-      const headers = response.headers ?? {};
+      const rawStatus = response.status !== undefined ? applyTemplate(response.status, context) : 200;
+      const status = Number(rawStatus) || 200;
+      const headers = applyTemplate(response.headers ?? {}, context) as Record<string, string>;
       Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
 
       const payload =

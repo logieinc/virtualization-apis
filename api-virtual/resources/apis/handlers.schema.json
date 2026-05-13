@@ -32,10 +32,15 @@
               "response": {
                 "type": "object",
                 "properties": {
-                  "status": { "type": "integer" },
+                  "status": { "type": ["integer", "string"] },
                   "headers": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" }
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" }
+                      },
+                      { "type": "string" }
+                    ]
                   },
                   "body": {},
                   "bodyTemplate": {}
@@ -49,10 +54,15 @@
           "response": {
             "type": "object",
             "properties": {
-              "status": { "type": "integer" },
+              "status": { "type": ["integer", "string"] },
               "headers": {
-                "type": "object",
-                "additionalProperties": { "type": "string" }
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" }
+                  },
+                  { "type": "string" }
+                ]
               },
               "body": {},
               "bodyTemplate": {},
