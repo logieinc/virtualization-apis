@@ -11,6 +11,7 @@ dist/
 
 # Env files
 .env
+.env.*
 .env.*.local
 
 # OS/editor files
